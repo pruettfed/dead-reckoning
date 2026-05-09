@@ -1,70 +1,104 @@
-# CLAUDE.md
+# Dark Vessel Detection
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Maritime OSINT platform that fuses Sentinel-1 SAR imagery with public AIS data to flag "dark vessels" — ships visible in satellite imagery but not broadcasting AIS. Portfolio project; all data sources are public and legal.
 
-## Project: Dark Vessel Detection
+## Repo state
 
-Maritime OSINT platform that fuses satellite imagery with public AIS data to flag "dark vessels" — ships visible in satellite imagery but not broadcasting AIS, indicating possibly illicit or military activity. Portfolio project; deployed publicly. All data sources are public and legal.
+Scaffold complete and smoke-tested (2026-05-09). FastAPI backend, Vite + React frontend, and docker-compose are all wired up and passing. See `docs/scaffold-smoke-test.md` for verified results.
 
-**Repo state:** scaffold only at the moment. The directory layout described below is the target structure; most files are still empty. When asked to implement something, build toward this structure rather than reorganizing it.
+Current phase: **weeks 1–3** — AIS ingestion and YOLOv8 fine-tune. No imagery pipeline yet.
 
-## Architecture (the core idea)
+## Tech stack
 
-The whole project hinges on a five-stage fusion pipeline. Understand this before touching `backend/app/`:
-
-1. **SAR detection** (`sar.py`) — Pull Sentinel-1 SAR imagery from Copernicus for a region of interest. Detect vessels via backscatter thresholding (works through clouds and at night).
-2. **Optical classification** (`planet.py`) — Pull PlanetScope imagery (3–5m, daily revisit) for the same locations. Run fine-tuned YOLOv8 on patches to classify ship type.
-3. **AIS ingestion** (`ais.py`) — Poll MarineTraffic / AISHub for AIS positions in the same bounding box; persist to PostGIS.
-4. **Fusion** (`fusion.py`) — Cross-reference satellite detections against AIS. A vessel detected via satellite with no AIS match within **500m / 2 hours** is flagged as dark. Use PostGIS `ST_DWithin` natively in SQL for the radius query — do not reinvent it in Python.
-5. **Surface** (frontend) — Leaflet map with vessel markers, AIS tracks, satellite footprints, timeline scrubber.
-
-AIS polling cadence is aligned to satellite revisit rate (every ~6 hours). Don't poll faster — it costs API quota with no analytical benefit.
-
-## Layout (target)
-
-```
-frontend/   Vite + React + TS, react-leaflet, deployed on Vercel
-backend/    FastAPI + SQLAlchemy(async) + GeoAlchemy2, deployed on Railway via Docker
-            app/main.py models.py ais.py sar.py planet.py fusion.py
-docker-compose.yml   spins up backend + postgis/postgis locally
-```
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy (async), asyncpg, GeoAlchemy2
+- **Frontend:** Vite 5, React 18, TypeScript, react-leaflet, TanStack Query, pnpm
+- **Database:** PostGIS 3.4 on PostgreSQL 16 (`postgis/postgis:16-3.4`)
+- **Deploy target:** Railway (backend), Vercel (frontend)
 
 ## Commands
 
-Once scaffolded, the local dev loop is:
+**Docker Compose**
+- `docker compose up` — backend (:8000) + PostGIS (:5432)
+- `docker compose up --build` — rebuild images first
+- `docker compose --profile frontend up` — also start Vite dev server (:5173)
+- `docker compose down` — stop and remove containers
+- `docker compose down -v` — also wipe the `postgres_data` volume
+- `docker compose logs backend -f` — tail backend logs
+- `docker compose exec db psql -U dvd -d dvd` — open psql shell
+- `docker compose restart backend` — hot-restart the API (picks up code changes outside the bind mount)
 
-- `docker compose up` — backend (`localhost:8000`) + PostGIS
-- `cd frontend && npm run dev` — Vite dev server (`localhost:5173`), proxies `/api` → backend
-- Backend uses `uvicorn --reload` **locally only** — strip the flag in the production Dockerfile.
+**Frontend (native — faster HMR than the container)**
+- `cd frontend && pnpm install` — install deps (first time or after package.json changes)
+- `pnpm dev` — Vite dev server (:5173), proxies `/api` → `localhost:8000`
 
-Tests, lint, and a single-test runner are not yet defined; document them here when added.
+Tests, lint, and CI are not yet configured — document here when added.
 
-## Key constraints (don't relitigate these)
+## Layout
 
-- **Postgres + PostGIS everywhere except earliest local dev.** SQLite is acceptable in week 1 only; do not introduce SQLite-specific code into anything that runs in Docker.
-- **Local Docker Compose mirrors production.** Deploying to Railway/Supabase should be a config swap, not a rewrite. If you find yourself adding prod-only code paths, push back.
-- **CORS origin** is `localhost:5173` in dev, the Vercel domain in prod. Read from env, not hardcoded.
-- **Imagery is never committed.** `.gitignore` excludes `*.tif`, `*.geotiff`, `data/`. If a tool wants to drop imagery into the repo root, redirect it to `data/`.
-- **`.env` never committed; `.env.example` is the contract.** Update `.env.example` whenever a new env var is added.
+```
+CLAUDE.md
+README.md
+docker-compose.yml
+backend/
+  Dockerfile            # production-clean (no --reload); compose overrides CMD for dev
+  requirements.txt      # lean API deps only; ML deps deferred to requirements-ml.txt
+  .env.example          # env var contract — update here whenever a new var is added
+  app/
+    main.py             # FastAPI app, CORS middleware, lifespan (create_all), endpoints
+    config.py           # pydantic-settings Settings; NoDecode on CORS_ORIGINS list field
+    database.py         # async engine, sessionmaker, Base, get_session() dependency
+    models.py           # SQLAlchemy models (empty until AIS Position lands)
+    ais.py              # AIS ingestion — stub
+    sar.py              # SAR detection — stub
+    planet.py           # optical classification (YOLOv8) — stub
+    fusion.py           # satellite ↔ AIS fusion — stub
+frontend/
+  Dockerfile            # used by --profile frontend only; runs pnpm dev inside container
+  package.json          # packageManager: pnpm
+  vite.config.ts        # /api proxy → VITE_API_PROXY_TARGET ?? localhost:8000
+  src/
+    main.tsx            # React root, QueryClientProvider
+    App.tsx             # health + vessels fetch via TanStack Query (proof of proxy)
+    api.ts              # apiGet<T>() fetch wrapper
+docs/
+  scaffold-smoke-test.md
+```
 
-## External APIs and current blockers
+## Architecture
 
-- **Copernicus** (Sentinel-1 SAR) — free, available now.
-- **MarineTraffic / AISHub** (AIS) — free tier, available now.
-- **Planet Labs** (PlanetScope optical) — student/research access **pending (~3 weeks)**. Do not block SAR or AIS work waiting on it.
+Five-stage fusion pipeline — understand this before touching `backend/app/`:
 
-**Planet Labs contingency** (in order, if access is denied):
-1. Google Earth Engine (apply in parallel — faster approval).
-2. Sentinel-2 at 10m — reframes CV from ship-type classification to size-category (small/medium/large); lean harder on SAR + AIS gap as the primary contribution.
-3. Umbra open SAR archive (1m).
+1. **SAR detection** (`sar.py`) — Sentinel-1 via Copernicus; backscatter thresholding (works through clouds and at night)
+2. **Optical classification** (`planet.py`) — PlanetScope (3–5m, daily revisit); fine-tuned YOLOv8 on patches
+3. **AIS ingestion** (`ais.py`) — MarineTraffic / AISHub polling for positions in the bounding box; persisted to PostGIS
+4. **Fusion** (`fusion.py`) — satellite detections cross-referenced against AIS; flagged dark if no match within 500m / 2h; use `ST_DWithin` in SQL — do not reimplement in Python
+5. **Surface** (frontend) — react-leaflet map, vessel markers, AIS tracks, satellite footprints, timeline scrubber
+
+AIS polling cadence = satellite revisit rate (~6h). Polling faster wastes API quota with no analytical benefit.
+
+## Constraints
+
+- **PostGIS everywhere** — SQLite acceptable in week 1 only; never in Docker or production paths
+- **Compose mirrors prod** — Railway/Supabase deploy must be a config swap, not a rewrite; push back on prod-only code paths
+- **CORS from env** — `localhost:5173` in dev, Vercel domain in prod; never hardcoded
+- **No imagery in repo** — `.gitignore` excludes `*.tif`, `*.geotiff`, `*.nc`, `data/`; redirect any tool that tries to write imagery to `data/`
+- **`.env` never committed** — `.env.example` is the contract; update it when adding env vars
+- **`--reload` for dev only** — the Dockerfile CMD omits it; compose overrides the command for local dev
+
+## External APIs
+
+- **Copernicus** (Sentinel-1 SAR) — free, available now
+- **MarineTraffic / AISHub** (AIS) — free tier, available now
+- **Planet Labs** (PlanetScope optical) — access pending (~3 weeks); don't block SAR or AIS work
+  - Fallback 1: Google Earth Engine (apply in parallel — faster approval)
+  - Fallback 2: Sentinel-2 at 10m (reframe CV to size-category; lean on SAR + AIS gap)
+  - Fallback 3: Umbra open SAR archive (1m)
 
 ## Phase context
 
-12-week timeline; current phase determines what's in scope:
+- **Weeks 1–3 (current):** YOLOv8 fine-tune on HRSC2016, AIS ingestion
+- **Weeks 4–6:** SAR layer, Planet inference, fusion logic (week 6 = highest-risk)
+- **Weeks 7–9:** Leaflet UI, FastAPI endpoints, Vercel + Railway deploy
+- **Weeks 10–12:** caching, README polish, demo video
 
-- **Weeks 1–3 (foundations):** YOLOv8 fine-tune on HRSC2016, AIS API integration. No imagery pipeline yet.
-- **Weeks 4–6 (imagery + fusion):** SAR layer, Planet inference, fusion logic. Week 6 (fusion) is the highest-risk week.
-- **Weeks 7–9 (frontend + deploy):** Leaflet UI, FastAPI endpoints, Vercel + Railway deploy.
-- **Weeks 10–12 (polish):** caching, README, demo video.
-
-If a request would pull work forward out of phase (e.g. building the timeline slider during week 2), flag the tradeoff before doing it.
+Flag scope-creep if a request pulls work forward out of phase.
