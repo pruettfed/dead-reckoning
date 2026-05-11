@@ -60,3 +60,41 @@ diff against future runs (or a future me) and not relitigate setup choices.
 Re-run this checklist after the AIS Position model + Alembic land. Add new
 rows for: `alembic upgrade head` succeeds; `/api/vessels` returns rows from a
 seed; PostGIS spatial query (`ST_DWithin`) works against the new table.
+
+# Weeks 1–3 — AIS ingestion — 2026-05-10
+
+Live AISStream ingest into PostGIS, time-aware read endpoints, hourly retention
+prune, and pytest suite. Alembic still deferred — schema lands via
+`Base.metadata.create_all` in lifespan.
+
+## What was verified
+
+| Check | Command | Result |
+| --- | --- | --- |
+| `ais_positions` schema | `docker compose exec db psql -U dvd -d dvd -c "\d ais_positions"` | id (bigint pk), mmsi (bigint), time (timestamptz), location (`geography(Point,4326)`), sog/cog (float), true_heading/nav_status (smallint); indexes: pk, GIST on location, btree(mmsi, time) |
+| Geography round-trip | `INSERT ... ST_GeogFromText('SRID=4326;POINT(...)')` then `ST_Y/ST_X` | values round-trip exactly; `ST_Within` against ROI envelope returns the row |
+| AISStream connect & subscribe | tail `docker compose logs backend` | `connected; subscribed (south_china_sea)`; reconnect/backoff path exists but not exercised |
+| Position decoding & batching | `flushed N rows` log lines (1–5 rows per ~1s batch) | sustained ingest, ~50–90 rows/min in SCS off-peak; 54 distinct MMSI in first ~50s |
+| Retention prune | `pruned 0 rows older than 7 days` log on startup | task runs at startup, then hourly |
+| Clean shutdown | `docker compose stop backend`, scan logs | final `flushed 1 rows` then `Shutting down`; no `Task was destroyed but it is pending!` warnings |
+| `GET /api/rois` | `curl :8000/api/rois` | 4 ROIs returned with `name`, `label`, `bbox` |
+| `GET /api/vessels` (default) | `curl :8000/api/vessels` | `count=67` latest-per-MMSI inside SCS, last 6h |
+| `GET /api/vessels?at=...` | `curl ":8000/api/vessels?at=2026-05-11T03:18:00Z"` and `...03:21:00Z` | counts differ across times (24 vs 66) — proves time-offset query works |
+| `GET /api/vessels/{mmsi}/track` | `curl ":8000/api/vessels/413496590/track?hours=1"` | time-ordered ascending positions; `hours=99999` clamped to `7*24` |
+| Vite proxy → live data | `curl :5173/api/vessels` | 91 vessels via the dev server proxy |
+| pytest suite | `cd backend && .venv/bin/pytest` | 17 passed (ais parser + ROI registry) |
+
+## Notes
+
+- **Volume of data:** SCS off-peak yields ~50–90 PositionReport messages/minute. With 7-day retention this caps `ais_positions` at ~1M rows in the busiest case — small for PostGIS, no partitioning needed yet.
+- **AISStream timestamp quirk:** messages carry Go-formatted nanosecond UTC strings (`"2024-08-30 13:24:32.987532323 +0000 UTC"`). `app.ais._parse_aisstream_time` truncates to microseconds for `datetime.fromisoformat`. Covered by `tests/test_ais.py::test_parses_full_position_report`.
+- **MMSI fallback:** AISStream sometimes omits `MetaData.MMSI` and only carries the id in `Message.PositionReport.UserID`. Parser tries both, in that order.
+- **Bbox corner order:** AISStream wants `[[SW lat, SW lon], [NE lat, NE lon]]` — lat-first, opposite of GeoJSON. Easy to break; covered by `tests/test_ais.py::test_subscribe_message_uses_aisstream_corner_order`.
+- **Retention deletes via raw SQL** (`DELETE ... WHERE time < now() - make_interval(days => :d)`) — Postgres-specific, fine on PostGIS.
+- **`/api/vessels?at=` accepts ISO-8601;** naive datetimes are treated as UTC. The 6-hour trailing window is hardcoded for now; revisit if the frontend timeline needs configurable depth.
+
+## Known limitations (intentional)
+
+- Live ROI switching not implemented — restart required to change `ACTIVE_ROI`.
+- No `ShipStaticData` ingestion — vessel names are not yet stored.
+- No Alembic — first column change will require introducing it.

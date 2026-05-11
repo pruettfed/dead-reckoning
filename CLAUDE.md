@@ -4,9 +4,9 @@ Maritime OSINT platform that detects ships in satellite optical imagery and cros
 
 ## Repo state
 
-Scaffold complete and smoke-tested (2026-05-09). FastAPI backend, Vite + React frontend, and docker-compose are all wired up and passing. See `docs/scaffold-smoke-test.md` for verified results.
+Scaffold complete and smoke-tested (2026-05-09). FastAPI backend, Vite + React frontend, and docker-compose are all wired up and passing. AIS ingestion landed and verified end-to-end (2026-05-10). See `docs/scaffold-smoke-test.md` for verified results.
 
-Current phase: **weeks 1–3** — AIS ingestion and YOLOv8 fine-tune on HRSC2016.
+Current phase: **weeks 1–3** — AIS ingestion is live; remaining: YOLOv8 fine-tune on HRSC2016.
 
 ## Tech stack
 
@@ -31,7 +31,11 @@ Current phase: **weeks 1–3** — AIS ingestion and YOLOv8 fine-tune on HRSC201
 - `cd frontend && pnpm install` — install deps (first time or after package.json changes)
 - `pnpm dev` — Vite dev server (:5173), proxies `/api` → `localhost:8000`
 
-Tests, lint, and CI are not yet configured — document here when added.
+**Backend tests (native via venv)**
+- `cd backend && .venv/bin/pip install -r requirements-dev.txt` — install pytest deps (first time)
+- `.venv/bin/pytest` — run unit suite. Pure-function tests only; live AIS / DB tests are intentionally out of scope here (would belong in a separate integration suite).
+
+Lint and CI are not yet configured — document here when added.
 
 ## Layout
 
@@ -47,11 +51,14 @@ backend/
     main.py             # FastAPI app, CORS middleware, lifespan (create_all), endpoints
     config.py           # pydantic-settings Settings; NoDecode on CORS_ORIGINS list field
     database.py         # async engine, sessionmaker, Base, get_session() dependency
-    models.py           # SQLAlchemy models (AISPosition lands here in weeks 1-3)
-    ais.py              # AIS ingestion — AISStream WebSocket (stub)
+    models.py           # SQLAlchemy models — AISPosition (geography, mmsi+time index)
+    ais.py              # Pure parsing helpers — AISStream PositionReport → ParsedPosition
+    ingest.py           # Long-running tasks — run_ingest (WebSocket) + run_retention (hourly prune)
+    rois.py             # Static ROI registry; ACTIVE_ROI selects which one is live
     optical.py          # Optical vessel detection via YOLOv8 (stub)
                         #   active source: Sentinel-2 (interim) → Planet Labs (when key set)
     fusion.py           # Optical detections ↔ AIS cross-reference — stub
+  tests/                # pytest suite — pure-function tests for ais.py + rois.py
 frontend/
   Dockerfile            # used by --profile frontend only; runs pnpm dev inside container
   package.json          # packageManager: pnpm
@@ -75,16 +82,14 @@ Four-stage pipeline — understand this before touching `backend/app/`:
 3. **Fusion** (`fusion.py`) — optical detections cross-referenced against AIS buffer; flagged dark if no AIS match within 500m / 2h; use `ST_DWithin` in SQL — do not reimplement in Python.
 4. **Surface** (frontend) — react-leaflet map, ROI selector, vessel markers, AIS tracks, imagery footprints, timeline scrubber.
 
-## ROIs (Regions of Interest)
+## Future features
 
-Users select a named ROI from the frontend. The selected ROI's bounding box drives both the AISStream subscription filter and the imagery query. Predefined ROIs live in the backend as a static config (not DB). Examples:
-
-- South China Sea
-- Strait of Hormuz
-- Gulf of Guinea
-- Eastern Mediterranean
-
-AISStream supports live bounding box filter updates on the same WebSocket connection — no reconnect needed when the user switches ROI.
+- ROIs (regions of interests)
+  - Users can select from multiple regions to view data from
+  - AISStream supports live bounding box filter updates on the same WebSocket connection — no reconnect needed when the user switches ROI.
+  - Predefined ROIs live in the backend as a static config (not DB)
+- Confidence levels
+  - Dark vessels should be marked with confidence levels based on model confidence
 
 ## Constraints
 
