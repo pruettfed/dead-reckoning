@@ -17,7 +17,12 @@ services:
 
   backend:
     build: ./backend
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
+      # These override env_file so the compose-internal DB hostname is always used.
+      # Secrets (API keys) come from ./backend/.env and are never written here.
       DATABASE_URL: postgresql+asyncpg://dvd:dvd@db:5432/dvd
       CORS_ORIGINS: http://localhost:5173
       ENV: development

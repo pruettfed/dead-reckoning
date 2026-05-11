@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = Field(alias="CORS_ORIGINS")
     env: str = Field(default="development", alias="ENV")
 
+    # AIS
+    aisstream_api_key: str | None = Field(default=None, alias="AISSTREAM_API_KEY")
+
+    # Optical — Sentinel-2 (interim) or Planet Labs (primary, pending access)
+    cdse_client_id: str | None = Field(default=None, alias="CDSE_CLIENT_ID")
+    cdse_client_secret: str | None = Field(default=None, alias="CDSE_CLIENT_SECRET")
+    planet_api_key: str | None = Field(default=None, alias="PLANET_API_KEY")
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: str | list[str]) -> list[str]:
