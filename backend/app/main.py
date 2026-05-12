@@ -16,7 +16,11 @@ from app.database import Base, engine, get_session
 from app.ingest import run_ingest, run_retention
 from app.rois import ROIS, get_roi
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+settings = get_settings()
+logging.basicConfig(
+    level=getattr(logging, settings.log_level, logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 
 @asynccontextmanager
@@ -36,7 +40,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await engine.dispose()
 
 
-settings = get_settings()
 app = FastAPI(title="Dark Vessel Detection API", lifespan=lifespan)
 
 app.add_middleware(
@@ -61,6 +64,34 @@ async def list_rois() -> list[dict]:
     ]
 
 
+VESSEL_COUNT_QUERY = text(
+    """
+    SELECT COUNT(DISTINCT mmsi) AS count
+    FROM ais_positions
+    WHERE time > now() - make_interval(mins => :minutes)
+      AND ST_Within(
+          location::geometry,
+          ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
+      )
+    """
+)
+
+
+@app.get("/api/vessels/count", summary="Count vessels with a position update in the active ROI within VESSEL_ACTIVE_MINUTES")
+async def vessel_count(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    roi = get_roi(settings.active_roi)
+    min_lon, min_lat, max_lon, max_lat = roi.bbox
+    row = (
+        await session.execute(
+            VESSEL_COUNT_QUERY,
+            {"minutes": settings.vessel_active_minutes, "min_lon": min_lon, "min_lat": min_lat, "max_lon": max_lon, "max_lat": max_lat},
+        )
+    ).mappings().one()
+    return {"count": row["count"]}
+
+
 VESSELS_QUERY = text(
     """
     SELECT DISTINCT ON (p.mmsi)
@@ -76,7 +107,7 @@ VESSELS_QUERY = text(
     FROM ais_positions p
     LEFT JOIN ship_metadata m ON m.mmsi = p.mmsi
     WHERE p.time <= :at
-      AND p.time > :at - interval '6 hours'
+      AND p.time > :at - make_interval(mins => :minutes)
       AND ST_Within(
           p.location::geometry,
           ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
@@ -101,6 +132,7 @@ async def list_vessels(
             VESSELS_QUERY,
             {
                 "at": when,
+                "minutes": settings.vessel_active_minutes,
                 "min_lon": min_lon,
                 "min_lat": min_lat,
                 "max_lon": max_lon,

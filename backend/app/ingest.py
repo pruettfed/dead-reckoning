@@ -92,10 +92,12 @@ async def _consume(ws: websockets.WebSocketClientProtocol, stop: asyncio.Event) 
         if msg_type == "PositionReport":
             pos = parse_position_report(msg)
             if pos is not None:
+                # log.debug("position mmsi=%d lat=%.4f lon=%.4f sog=%s", pos.mmsi, pos.lat, pos.lon, pos.sog)
                 buffer.append(pos)
         elif msg_type == "ShipStaticData":
             meta = parse_ship_static_data(msg)
             if meta is not None:
+                # log.debug("upserted ship metadata mmsi=%d name=%r callsign=%r", meta.mmsi, meta.ship_name, meta.callsign)
                 await _upsert_ship_metadata(meta)
 
         if len(buffer) >= BATCH_SIZE:

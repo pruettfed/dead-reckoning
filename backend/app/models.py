@@ -31,10 +31,7 @@ class AISPosition(Base):
 
 class ShipMetadata(Base):
     """Latest static info per vessel, upserted on each AIS ShipStaticData message.
-
-    Ship type is stored as the raw AIS numeric code (0–99) so the frontend can
-    translate it however it likes. Common values: 70 = Cargo, 80 = Tanker.
-    """
+    Ship type is stored as the raw AIS numeric code"""
 
     __tablename__ = "ship_metadata"
 

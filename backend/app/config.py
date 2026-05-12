@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     aisstream_api_key: str | None = Field(default=None, alias="AISSTREAM_API_KEY")
     active_roi: str = Field(default="south_china_sea", alias="ACTIVE_ROI")
     ais_retention_days: int = Field(default=7, alias="AIS_RETENTION_DAYS")
+    vessel_active_minutes: int = Field(default=30, alias="VESSEL_ACTIVE_MINUTES")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     # Optical — Sentinel-2 (interim) or Planet Labs (primary, pending access)
     cdse_client_id: str | None = Field(default=None, alias="CDSE_CLIENT_ID")
