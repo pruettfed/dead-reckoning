@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -146,15 +147,19 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
-def build_subscribe_message(api_key: str, roi: ROI) -> dict[str, Any]:
-    """Build the AISStream subscribe payload for a single ROI.
+def build_subscribe_message(api_key: str, rois: Iterable[ROI]) -> dict[str, Any]:
+    """Build the AISStream subscribe payload for one or more ROIs.
 
     AISStream expects bounding-box corners as [[south-west], [north-east]] in
     [latitude, longitude] order — the opposite of GeoJSON.
     """
-    min_lon, min_lat, max_lon, max_lat = roi.bbox
+    boxes = [
+        [[min_lat, min_lon], [max_lat, max_lon]]
+        for roi in rois
+        for min_lon, min_lat, max_lon, max_lat in (roi.bbox,)
+    ]
     return {
         "APIKey": api_key,
-        "BoundingBoxes": [[[min_lat, min_lon], [max_lat, max_lon]]],
+        "BoundingBoxes": boxes,
         "FilterMessageTypes": ["PositionReport", "ShipStaticData"],
     }

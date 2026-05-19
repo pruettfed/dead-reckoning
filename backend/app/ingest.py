@@ -26,7 +26,7 @@ from app.ais import (
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models import AISPosition, ShipMetadata
-from app.rois import get_roi
+from app.rois import ROIS
 
 log = logging.getLogger(__name__)
 
@@ -48,15 +48,14 @@ async def run_ingest(stop: asyncio.Event) -> None:
         log.warning("AISSTREAM_API_KEY not set; AIS ingest disabled")
         return
 
-    roi = get_roi(settings.active_roi)
-    sub_msg = json.dumps(build_subscribe_message(settings.aisstream_api_key, roi))
+    sub_msg = json.dumps(build_subscribe_message(settings.aisstream_api_key, ROIS.values()))
 
     backoff = 1.0
     while not stop.is_set():
         try:
             async with websockets.connect(AISSTREAM_URL) as ws:
                 await ws.send(sub_msg)
-                log.info("connected; subscribed (%s)", roi.name)
+                log.info("connected; subscribed to %d ROIs", len(ROIS))
                 backoff = 1.0
                 await _consume(ws, stop)
         except asyncio.CancelledError:

@@ -90,12 +90,25 @@ def test_optional_fields_absent_yields_none_values():
 
 def test_subscribe_message_uses_aisstream_corner_order():
     """AISStream wants [[SW lat, SW lon], [NE lat, NE lon]] — lat-first, GeoJSON-flipped."""
-    sub = build_subscribe_message("KEY123", get_roi("south_china_sea"))
+    sub = build_subscribe_message("KEY123", [get_roi("south_china_sea")])
     assert sub == {
         "APIKey": "KEY123",
         "BoundingBoxes": [[[0.0, 105.0], [23.0, 122.0]]],
         "FilterMessageTypes": ["PositionReport", "ShipStaticData"],
     }
+
+
+def test_subscribe_message_includes_all_rois():
+    """Multiple ROIs produce multiple bounding boxes in the same subscription."""
+    from app.rois import ROIS
+
+    sub = build_subscribe_message("KEY123", ROIS.values())
+    assert sub["APIKey"] == "KEY123"
+    assert sub["FilterMessageTypes"] == ["PositionReport", "ShipStaticData"]
+    assert len(sub["BoundingBoxes"]) == len(ROIS)
+    # Each box is [[lat, lon], [lat, lon]] — verify lat/lon order for one entry
+    scs = next(b for b in sub["BoundingBoxes"] if b == [[0.0, 105.0], [23.0, 122.0]])
+    assert scs is not None
 
 
 # ── ShipStaticData parser ──────────────────────────────────────────────────

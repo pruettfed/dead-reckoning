@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,12 +77,16 @@ VESSEL_COUNT_QUERY = text(
 )
 
 
-@app.get("/api/vessels/count", summary="Count vessels with a position update in the active ROI within VESSEL_ACTIVE_MINUTES")
+@app.get("/api/vessels/count", summary="Count vessels with a position update in the given ROI within VESSEL_ACTIVE_MINUTES")
 async def vessel_count(
     session: Annotated[AsyncSession, Depends(get_session)],
+    roi: str = Query(default="south_china_sea"),
 ) -> dict:
-    roi = get_roi(settings.active_roi)
-    min_lon, min_lat, max_lon, max_lat = roi.bbox
+    try:
+        roi_obj = get_roi(roi)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    min_lon, min_lat, max_lon, max_lat = roi_obj.bbox
     row = (
         await session.execute(
             VESSEL_COUNT_QUERY,
@@ -121,12 +125,16 @@ VESSELS_QUERY = text(
 async def list_vessels(
     session: Annotated[AsyncSession, Depends(get_session)],
     at: datetime | None = Query(default=None, description="ISO-8601; defaults to now (UTC)"),
+    roi: str = Query(default="south_china_sea"),
 ) -> list[dict]:
+    try:
+        roi_obj = get_roi(roi)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     when = at or datetime.now(tz=timezone.utc)
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
-    roi = get_roi(settings.active_roi)
-    min_lon, min_lat, max_lon, max_lat = roi.bbox
+    min_lon, min_lat, max_lon, max_lat = roi_obj.bbox
     rows = (
         await session.execute(
             VESSELS_QUERY,
