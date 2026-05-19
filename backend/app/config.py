@@ -19,9 +19,7 @@ class Settings(BaseSettings):
     source_stale_after_seconds: float = Field(default=60.0, alias="SOURCE_STALE_AFTER_SECONDS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
-    # Optical — Sentinel-2 (interim) or Planet Labs (primary, pending access)
-    cdse_client_id: str | None = Field(default=None, alias="CDSE_CLIENT_ID")
-    cdse_client_secret: str | None = Field(default=None, alias="CDSE_CLIENT_SECRET")
+    # Optical Planet Labs
     planet_api_key: str | None = Field(default=None, alias="PLANET_API_KEY")
 
     @field_validator("cors_origins", mode="before")

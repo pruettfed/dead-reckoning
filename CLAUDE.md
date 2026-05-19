@@ -4,9 +4,9 @@ Maritime OSINT platform that detects ships in satellite optical imagery and cros
 
 ## Repo state
 
-Scaffold complete and smoke-tested (2026-05-09). FastAPI backend, Vite + React frontend, and docker-compose are all wired up and passing. AIS ingestion landed and verified end-to-end (2026-05-10). See `docs/scaffold-smoke-test.md` for verified results.
+Scaffold complete and smoke-tested (2026-05-09). FastAPI backend, Vite + React frontend, and docker-compose are all wired up and passing. AIS ingestion landed and verified end-to-end (2026-05-10). Multi-ROI ingestion landed (2026-05-18) — a single AISStream subscription now covers all 4 ROIs simultaneously; vessel endpoints take a `?roi=` query param (frontend selector still to be wired). AIS durability hardening landed (2026-05-18) — bounded DB-write retry in `_flush`/`_upsert_ship_metadata` so transient Postgres hiccups no longer tear down the WebSocket, plus an in-memory per-source health tracker (`app/sources.py`) surfaced via an enriched `/api/health` and a `SOURCE_STALE_AFTER_SECONDS` knob. Planet Labs PlanetScope API access acquired (2026-05-18) — primary optical source is ready to wire up. See `docs/scaffold-smoke-test.md` for verified scaffold results.
 
-Current phase: **weeks 1–3** — AIS ingestion is live; remaining: YOLOv8 fine-tune on HRSC2016.
+Current phase: **weeks 1–3** — AIS ingestion is live and hardened; remaining: YOLOv8 fine-tune on HRSC2016.
 
 ## Tech stack
 
@@ -54,11 +54,12 @@ backend/
     models.py           # SQLAlchemy models — AISPosition (geography, mmsi+time index)
     ais.py              # Pure parsing helpers — AISStream PositionReport → ParsedPosition
     ingest.py           # Long-running tasks — run_ingest (WebSocket) + run_retention (hourly prune)
-    rois.py             # Static ROI registry; ACTIVE_ROI selects which one is live
+    rois.py             # Static ROI registry; AISStream subscribes to all ROIs at once
+    sources.py          # In-memory per-source health tracker; surfaced at /api/health
     optical.py          # Optical vessel detection via YOLOv8 (stub)
-                        #   active source: Sentinel-2 (interim) → Planet Labs (when key set)
+                        #   active source: Planet Labs PlanetScope (primary)
     fusion.py           # Optical detections ↔ AIS cross-reference — stub
-  tests/                # pytest suite — pure-function tests for ais.py + rois.py
+  tests/                # pytest suite — pure-function tests for ais.py, rois.py, sources.py
 frontend/
   Dockerfile            # used by --profile frontend only; runs pnpm dev inside container
   package.json          # packageManager: pnpm
@@ -75,19 +76,13 @@ docs/
 
 Four-stage pipeline — understand this before touching `backend/app/`:
 
-1. **AIS ingestion** (`ais.py`) — AISStream WebSocket filtered by ROI bounding box; positions streamed continuously into PostGIS. No polling — persistent connection, positions arrive as vessels broadcast.
-2. **Optical detection** (`optical.py`) — YOLOv8 inference on satellite imagery chips; returns vessel centroids + confidence. Active source is config-driven:
-   - `PLANET_API_KEY` set → Planet Labs PlanetScope (3–5m, daily revisit) — primary, access pending
-   - `CDSE_CLIENT_ID` set → Sentinel-2 (10m, ~5-day revisit) — interim fallback, free via CDSE
+1. **AIS ingestion** (`ais.py`) — AISStream WebSocket filtered by the union of every ROI's bounding box; positions streamed continuously into PostGIS. No polling — persistent connection, positions arrive as vessels broadcast. Switching the frontend's selected ROI is a pure view filter — ingestion never narrows.
+2. **Optical detection** (`optical.py`) — YOLOv8 inference on satellite imagery chips; returns vessel centroids + confidence. Source: Planet Labs PlanetScope (3–5m, daily revisit) via `PLANET_API_KEY`.
 3. **Fusion** (`fusion.py`) — optical detections cross-referenced against AIS buffer; flagged dark if no AIS match within 500m / 2h; use `ST_DWithin` in SQL — do not reimplement in Python.
 4. **Surface** (frontend) — react-leaflet map, ROI selector, vessel markers, AIS tracks, imagery footprints, timeline scrubber.
 
 ## Future features
 
-- ROIs (regions of interests)
-  - Users can select from multiple regions to view data from
-  - AISStream supports live bounding box filter updates on the same WebSocket connection — no reconnect needed when the user switches ROI.
-  - Predefined ROIs live in the backend as a static config (not DB)
 - Confidence levels
   - Dark vessels should be marked with confidence levels based on model confidence
 
@@ -99,19 +94,18 @@ Four-stage pipeline — understand this before touching `backend/app/`:
 - **No imagery in repo** — `.gitignore` excludes `*.tif`, `*.geotiff`, `*.nc`, `data/`; redirect any tool that tries to write imagery to `data/`
 - **`.env` never committed** — `.env.example` is the contract; update it when adding env vars
 - **`--reload` for dev only** — the Dockerfile CMD omits it; compose overrides the command for local dev
-- **Optical source is config-driven** — `optical.py` checks for `PLANET_API_KEY` first, falls back to CDSE/Sentinel-2; no hardcoded source
+- **Optical source via env** — `optical.py` reads `PLANET_API_KEY` to enable Planet PlanetScope; the future SAR layer will follow the same pattern via CDSE OAuth credentials
 
 ## External APIs
 
 - **AISStream** (AIS) — free beta, WebSocket, sign up at aisstream.io with GitHub
-- **Copernicus Data Space Ecosystem / Sentinel-2** (optical, interim) — free (10k requests/month), OAuth2 client credentials, register at dataspace.copernicus.eu
-- **Planet Labs PlanetScope** (optical, primary) — access pending approval; will replace Sentinel-2 when `PLANET_API_KEY` is set
-- **SAR (future, optional)** — Sentinel-1 via CDSE; same credentials as Sentinel-2. Adds all-weather/night coverage. Deferred — implement if time permits after weeks 7–9.
+- **Planet Labs PlanetScope** (optical, primary) — access acquired 2026-05-18; set `PLANET_API_KEY` to enable
+- **Sentinel-1 SAR via Copernicus Data Space Ecosystem** (future, optional) — different sensor from Sentinel-2 (radar, not optical); adds all-weather/night coverage. OAuth2 client credentials at dataspace.copernicus.eu; `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` slots already in `config.py` for when this lands. Deferred — implement if time permits after weeks 7–9.
 
 ## Phase context
 
 - **Weeks 1–3 (current):** AIS ingestion (AISStream WebSocket → PostGIS) + YOLOv8 fine-tune on HRSC2016
-- **Weeks 4–6:** Optical pipeline (Sentinel-2 imagery → YOLOv8 inference → detections), fusion logic
+- **Weeks 4–6:** Optical pipeline (Planet PlanetScope imagery → YOLOv8 inference → detections), fusion logic
 - **Weeks 7–9:** Leaflet UI (ROI selector, vessel markers, tracks), FastAPI endpoints, Vercel + Railway deploy
 - **Weeks 10–12:** caching, README polish, demo video; SAR layer if time permits
 
