@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
+from app import sources
 from app.config import get_settings
 from app.database import Base, engine, get_session
 from app.ingest import run_ingest, run_retention
@@ -52,8 +53,8 @@ app.add_middleware(
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict:
+    return {"status": "ok", "sources": sources.snapshot()}
 
 
 @app.get("/api/rois")
