@@ -81,7 +81,7 @@ VESSEL_COUNT_QUERY = text(
 @app.get("/api/vessels/count", summary="Count vessels with a position update in the given ROI within VESSEL_ACTIVE_MINUTES")
 async def vessel_count(
     session: Annotated[AsyncSession, Depends(get_session)],
-    roi: str = Query(default="south_china_sea"),
+    roi: str = Query(default="strait_of_hormuz"),
 ) -> dict:
     try:
         roi_obj = get_roi(roi)
@@ -126,7 +126,7 @@ VESSELS_QUERY = text(
 async def list_vessels(
     session: Annotated[AsyncSession, Depends(get_session)],
     at: datetime | None = Query(default=None, description="ISO-8601; defaults to now (UTC)"),
-    roi: str = Query(default="south_china_sea"),
+    roi: str = Query(default="strait_of_hormuz"),
 ) -> list[dict]:
     try:
         roi_obj = get_roi(roi)
@@ -176,10 +176,8 @@ TRACK_QUERY = text(
 async def vessel_track(
     mmsi: int,
     session: Annotated[AsyncSession, Depends(get_session)],
-    hours: int = Query(default=72, ge=1),
+    hours: int = Query(default=12, ge=1),
 ) -> list[dict]:
-    # Returns all stored positions for the vessel over the trailing `hours` window (min 1,
-    # max 24 × AIS_RETENTION_DAYS; default 168h). Silently clamps values above the max.
     max_hours = 24 * settings.ais_retention_days
     hours = min(hours, max_hours)
     rows = (

@@ -1,9 +1,3 @@
-"""Static registry of named Regions of Interest.
-
-The active ROI (selected via `ACTIVE_ROI`) drives both the AISStream subscription
-filter and, later, the imagery query. Bboxes are first-pass approximations.
-"""
-
 from dataclasses import dataclass
 
 
@@ -15,25 +9,25 @@ class ROI:
 
 
 ROIS: dict[str, ROI] = {
-    "south_china_sea": ROI(
-        name="south_china_sea",
-        label="South China Sea",
-        bbox=(105.0, 0.0, 122.0, 23.0),
-    ),
     "strait_of_hormuz": ROI(
         name="strait_of_hormuz",
-        label="Strait of Hormuz",
-        bbox=(54.0, 24.0, 58.5, 27.5),
+        label="Fujairah Anchorage (Gulf of Oman)",
+        bbox=(56.50, 25.00, 57.10, 25.60),
     ),
-    "gulf_of_guinea": ROI(
-        name="gulf_of_guinea",
-        label="Gulf of Guinea",
-        bbox=(-5.0, -2.0, 9.0, 7.0),
+    "taiwan_strait": ROI(
+        name="taiwan_strait",
+        label="Taiwan Strait",
+        bbox=(119.00, 23.70, 119.80, 24.50),
     ),
-    "eastern_mediterranean": ROI(
-        name="eastern_mediterranean",
-        label="Eastern Mediterranean",
-        bbox=(22.0, 30.0, 36.0, 38.0),
+    "spratly_islands": ROI(
+        name="spratly_islands",
+        label="Spratly Islands (S. China Sea)",
+        bbox=(114.80, 9.60, 115.60, 10.40),
+    ),
+    "black_sea": ROI(
+        name="black_sea",
+        label="NE Black Sea (Kerch approaches)",
+        bbox=(36.50, 44.20, 37.30, 44.90),
     ),
 }
 
@@ -41,6 +35,6 @@ ROIS: dict[str, ROI] = {
 def get_roi(name: str) -> ROI:
     try:
         return ROIS[name]
-    except KeyError as exc:
+    except KeyError as e:
         known = ", ".join(sorted(ROIS))
-        raise ValueError(f"unknown ROI {name!r}; known: {known}") from exc
+        raise ValueError(f"unknown ROI {name!r}; known: {known}") from e

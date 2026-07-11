@@ -1,10 +1,4 @@
-"""In-memory health state for ingestion sources.
-
-Generic, source-keyed (`"ais"` today, `"optical_*"` later). State is held in a
-module-level dict; helpers mutate it, `snapshot()` reads it for `/api/health`.
-No I/O, no DB — surviving a restart is intentionally out of scope here.
-"""
-
+# Keep track of state of connections for DB, AIS
 from __future__ import annotations
 
 from dataclasses import dataclass, field

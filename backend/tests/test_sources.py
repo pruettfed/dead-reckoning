@@ -102,18 +102,18 @@ def test_snapshot_lag_rounded_to_one_decimal():
 
 def test_snapshot_handles_unknown_source_without_message():
     # mark_disconnected on a never-seen source should still produce a sane snapshot
-    sources.mark_disconnected("optical_sentinel2", reason="not implemented yet")
+    sources.mark_disconnected("sar_sentinel1", reason="not implemented yet")
     snap = sources.snapshot(stale_after=60)
-    assert snap["optical_sentinel2"]["state"] == "disconnected"
-    assert snap["optical_sentinel2"]["lag_seconds"] is None
-    assert snap["optical_sentinel2"]["last_message_at"] is None
+    assert snap["sar_sentinel1"]["state"] == "disconnected"
+    assert snap["sar_sentinel1"]["lag_seconds"] is None
+    assert snap["sar_sentinel1"]["last_message_at"] is None
 
 
 def test_multiple_sources_tracked_independently():
     sources.mark_connected("ais")
     sources.mark_message("ais")
-    sources.mark_disconnected("optical_sentinel2", reason="offline")
+    sources.mark_disconnected("sar_sentinel1", reason="offline")
     snap = sources.snapshot(stale_after=60)
     assert snap["ais"]["state"] == "connected"
-    assert snap["optical_sentinel2"]["state"] == "disconnected"
-    assert set(snap.keys()) == {"ais", "optical_sentinel2"}
+    assert snap["sar_sentinel1"]["state"] == "disconnected"
+    assert set(snap.keys()) == {"ais", "sar_sentinel1"}

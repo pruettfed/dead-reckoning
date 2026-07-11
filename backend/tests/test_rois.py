@@ -5,10 +5,10 @@ from app.rois import ROIS, get_roi
 
 def test_four_rois_present():
     assert set(ROIS) == {
-        "south_china_sea",
         "strait_of_hormuz",
-        "gulf_of_guinea",
-        "eastern_mediterranean",
+        "taiwan_strait",
+        "spratly_islands",
+        "black_sea",
     }
 
 
@@ -22,7 +22,7 @@ def test_bbox_is_well_formed(name: str):
 
 
 def test_get_roi_returns_known():
-    assert get_roi("south_china_sea").label == "South China Sea"
+    assert get_roi("strait_of_hormuz").label == "Fujairah Anchorage (Gulf of Oman)"
 
 
 def test_get_roi_unknown_raises():

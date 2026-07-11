@@ -78,9 +78,8 @@ backend/app/
   database.py  Async engine, session dependency, SQLAlchemy Base
   models.py    Database models
   ais.py       AIS ingestion pipeline
-  sar.py       SAR vessel detection
-  planet.py    Optical classification (YOLOv8)
-  fusion.py    Satellite ↔ AIS dark-vessel fusion
+  sar.py       Sentinel-1 SAR vessel detection (YOLOv8) — via CDSE
+  fusion.py    SAR ↔ AIS dark-vessel fusion
 frontend/src/
   App.tsx      Root component
   api.ts       Typed fetch wrapper for /api
