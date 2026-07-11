@@ -1,12 +1,14 @@
 # Dark Vessel Detection
 
-Maritime OSINT platform that detects ships in satellite optical imagery and cross-references against live AIS data to flag "dark vessels" — ships visible in imagery but not broadcasting AIS. Portfolio project; all data sources are public and legal.
+Maritime OSINT platform that detects ships in satellite SAR (radar) imagery and cross-references against live AIS data to flag "dark vessels" — ships visible in imagery but not broadcasting AIS. Detection is single-snapshot correlation: each Sentinel-1 pass is an independent event, and detections are compared against AIS interpolated to the acquisition timestamp. Portfolio project; all data sources are public and legal.
 
 ## Repo state
 
-Scaffold complete and smoke-tested (2026-05-09). FastAPI backend, Vite + React frontend, and docker-compose are all wired up and passing. AIS ingestion landed and verified end-to-end (2026-05-10). Multi-ROI ingestion landed (2026-05-18) — a single AISStream subscription now covers all 4 ROIs simultaneously; vessel endpoints take a `?roi=` query param (frontend selector still to be wired). AIS durability hardening landed (2026-05-18) — bounded DB-write retry in `_flush`/`_upsert_ship_metadata` so transient Postgres hiccups no longer tear down the WebSocket, plus an in-memory per-source health tracker (`app/sources.py`) surfaced via an enriched `/api/health` and a `SOURCE_STALE_AFTER_SECONDS` knob. Planet Labs PlanetScope API access acquired (2026-05-18) — primary optical source is ready to wire up. See `docs/scaffold-smoke-test.md` for verified scaffold results.
+Scaffold complete and smoke-tested (2026-05-09). FastAPI backend, Vite + React frontend, and docker-compose are all wired up and passing. AIS ingestion landed and verified end-to-end (2026-05-10). Multi-ROI ingestion landed (2026-05-18) — a single AISStream subscription now covers all 4 ROIs simultaneously; vessel endpoints take a `?roi=` query param (frontend selector still to be wired). AIS durability hardening landed (2026-05-18) — bounded DB-write retry in `_flush`/`_upsert_ship_metadata` so transient Postgres hiccups no longer tear down the WebSocket, plus an in-memory per-source health tracker (`app/sources.py`) surfaced via an enriched `/api/health` and a `SOURCE_STALE_AFTER_SECONDS` knob. See `docs/scaffold-smoke-test.md` for verified scaffold results.
 
-Current phase: **weeks 1–3** — AIS ingestion is live and hardened; remaining: YOLOv8 fine-tune on HRSC2016.
+The SAR source (`app/sar.py`) is scaffolded: a free, unauthenticated CDSE catalog search (`search_scenes`) is implemented; pixel fetch and detection are deferred stubs.
+
+Current phase: **weeks 1–3** — AIS ingestion is live and hardened; remaining: YOLOv8 fine-tune on a SAR ship dataset (HRSID / SSDD).
 
 ## Tech stack
 
@@ -56,9 +58,9 @@ backend/
     ingest.py           # Long-running tasks — run_ingest (WebSocket) + run_retention (hourly prune)
     rois.py             # Static ROI registry; AISStream subscribes to all ROIs at once
     sources.py          # In-memory per-source health tracker; surfaced at /api/health
-    optical.py          # Optical vessel detection via YOLOv8 (stub)
-                        #   active source: Planet Labs PlanetScope (primary)
-    fusion.py           # Optical detections ↔ AIS cross-reference — stub
+    sar.py              # Sentinel-1 SAR via CDSE — free catalog search done; pixel
+                        #   fetch + YOLOv8 detection are deferred stubs
+    fusion.py           # SAR detections ↔ AIS cross-reference — stub
   tests/                # pytest suite — pure-function tests for ais.py, rois.py, sources.py
 frontend/
   Dockerfile            # used by --profile frontend only; runs pnpm dev inside container
@@ -76,10 +78,10 @@ docs/
 
 Four-stage pipeline — understand this before touching `backend/app/`:
 
-1. **AIS ingestion** (`ais.py`) — AISStream WebSocket filtered by the union of every ROI's bounding box; positions streamed continuously into PostGIS. No polling — persistent connection, positions arrive as vessels broadcast. Switching the frontend's selected ROI is a pure view filter — ingestion never narrows.
-2. **Optical detection** (`optical.py`) — YOLOv8 inference on satellite imagery chips; returns vessel centroids + confidence. Source: Planet Labs PlanetScope (3–5m, daily revisit) via `PLANET_API_KEY`.
-3. **Fusion** (`fusion.py`) — optical detections cross-referenced against AIS buffer; flagged dark if no AIS match within 500m / 2h; use `ST_DWithin` in SQL — do not reimplement in Python.
-4. **Surface** (frontend) — react-leaflet map, ROI selector, vessel markers, AIS tracks, imagery footprints, timeline scrubber.
+1. **AIS ingestion** (`ais.py`) — AISStream WebSocket filtered by the union of every ROI's bounding box; positions streamed continuously into PostGIS. No polling — persistent connection, positions arrive as vessels broadcast. Short retention (`AIS_RETENTION_DAYS`, default 2) since correlation only needs AIS bracketing each ~daily SAR pass. Switching the frontend's selected ROI is a pure view filter — ingestion never narrows.
+2. **SAR detection** (`sar.py`) — Sentinel-1 IW GRDH VV+VH scenes (via CDSE) run through YOLOv8 (fine-tuned on a SAR ship dataset); returns vessel centroids + confidence. Catalog search is free; pixel fetch + detection are deferred stubs. Ships read as bright returns on dark water; one IW swath (~250 km) covers a right-sized ROI whole.
+3. **Fusion** (`fusion.py`) — SAR detections cross-referenced against the AIS buffer at the scene's acquisition timestamp; flagged dark if no AIS match within 500m / 2h; use `ST_DWithin` in SQL — do not reimplement in Python. Clip every conclusion to `ROI ∩ image-footprint` (a detection outside the imaged footprint is *unobserved*, not dark), and never mosaic passes for the correlation (different times = vessels moved).
+4. **Surface** (frontend) — react-leaflet map, ROI selector, vessel markers, AIS tracks, SAR footprints, timeline scrubber.
 
 ## Future features
 
@@ -94,19 +96,20 @@ Four-stage pipeline — understand this before touching `backend/app/`:
 - **No imagery in repo** — `.gitignore` excludes `*.tif`, `*.geotiff`, `*.nc`, `data/`; redirect any tool that tries to write imagery to `data/`
 - **`.env` never committed** — `.env.example` is the contract; update it when adding env vars
 - **`--reload` for dev only** — the Dockerfile CMD omits it; compose overrides the command for local dev
-- **Optical source via env** — `optical.py` reads `PLANET_API_KEY` to enable Planet PlanetScope; the future SAR layer will follow the same pattern via CDSE OAuth credentials
+- **SAR source via env** — `sar.py` reads `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` for authenticated pixel fetch; catalog search needs no credentials
+- **Copernicus credit budget** — 30,000 Processing Units (PU) / month. Catalog search is free (0 PU); only pixel fetch spends PU. Prefer GRD download / COG `/vsicurl` reads over the Sentinel Hub Process API, and never drive discovery through the Copernicus Browser (its rendering also burns PU)
+- **ROIs are water-centered and ≤ ~250 km** — one Sentinel-1 IW swath; keeps each ROI fully covered per pass and keeps land returns out of SAR ship detection
 
 ## External APIs
 
 - **AISStream** (AIS) — free beta, WebSocket, sign up at aisstream.io with GitHub
-- **Planet Labs PlanetScope** (optical, primary) — access acquired 2026-05-18; set `PLANET_API_KEY` to enable
-- **Sentinel-1 SAR via Copernicus Data Space Ecosystem** (future, optional) — different sensor from Sentinel-2 (radar, not optical); adds all-weather/night coverage. OAuth2 client credentials at dataspace.copernicus.eu; `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` slots already in `config.py` for when this lands. Deferred — implement if time permits after weeks 7–9.
+- **Sentinel-1 SAR via Copernicus Data Space Ecosystem** (primary, radar) — all-weather/night ship detection, free, ~daily coverage over coastal ROIs via the S1A/S1C/S1D constellation. Catalog search uses the unauthenticated CDSE OData API (0 PU); pixel fetch uses OAuth2 client credentials (`CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET`) at dataspace.copernicus.eu. Product: `IW_GRDH_1SDV` (IW mode, GRD high-res, dual-pol VV+VH).
 
 ## Phase context
 
-- **Weeks 1–3 (current):** AIS ingestion (AISStream WebSocket → PostGIS) + YOLOv8 fine-tune on HRSC2016
-- **Weeks 4–6:** Optical pipeline (Planet PlanetScope imagery → YOLOv8 inference → detections), fusion logic
+- **Weeks 1–3 (current):** AIS ingestion (AISStream WebSocket → PostGIS) + YOLOv8 fine-tune on a SAR ship dataset (HRSID / SSDD)
+- **Weeks 4–6:** SAR pipeline (Sentinel-1 GRD via CDSE → YOLOv8 inference → detections), fusion logic
 - **Weeks 7–9:** Leaflet UI (ROI selector, vessel markers, tracks), FastAPI endpoints, Vercel + Railway deploy
-- **Weeks 10–12:** caching, README polish, demo video; SAR layer if time permits
+- **Weeks 10–12:** caching, README polish, demo video
 
 Flag scope-creep if a request pulls work forward out of phase.
