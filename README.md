@@ -100,32 +100,3 @@ Compose sets the first three automatically. For native dev (and for all secrets)
 | `MODEL_PATH` | `models/sar_ship.pt` | YOLOv8 checkpoint path |
 
 The complete contract lives in [`backend/.env.example`](backend/.env.example).
-
-## Project layout
-
-```
-backend/app/
-  main.py      FastAPI app — AIS, scene, detection, and analysis endpoints
-  config.py    Settings loaded from environment (pydantic-settings)
-  database.py  Async engine, session dependency, SQLAlchemy Base
-  models.py    Database models — AIS positions, SAR scenes, SAR detections
-  ais.py       AISStream message parsing
-  ingest.py    AIS WebSocket ingestion + retention pruning
-  rois.py      Static ROI registry
-  sources.py   Per-source health tracking (surfaced at /api/health)
-  sar.py       Sentinel-1 catalog search + Process API pixel fetch (CDSE)
-  detect.py    Tiled YOLOv8 inference over SAR chips
-  fusion.py    SAR ↔ AIS dark-vessel fusion (PostGIS ST_DWithin)
-  pipeline.py  Analysis orchestration: search → fetch → detect → fuse
-frontend/src/
-  App.tsx           Root component — ROI selector, scene-as-time control
-  api.ts            Typed fetch wrapper for /api
-  components/       MapView, VesselLayer, SceneLayer, ScenePanel
-ml/
-  README.md         Colab runbook: fine-tune YOLOv8 on HRSID → best.pt
-  prepare_dataset.py  COCO → YOLO dataset converter
-  train.py / eval.py  Training and mAP evaluation
-docs/
-  api.md            Endpoint reference
-  ais-coverage.md   Verified AISStream coverage per ROI + alternative sources
-```

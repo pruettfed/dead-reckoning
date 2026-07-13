@@ -14,6 +14,7 @@ from app.sar import (
     MAX_TILE_PX,
     SarScene,
     build_process_request,
+    estimate_pu,
     plan_fetch_grid,
 )
 
@@ -87,6 +88,18 @@ class TestPlanFetchGrid:
         assert grid.height == pytest.approx(6679, abs=2)
         # longitude shrinks by cos(25.3 deg)
         assert grid.width < grid.height
+
+
+class TestEstimatePu:
+    def test_matches_area_bands_ortho_formula(self):
+        grid = plan_fetch_grid(TEST_BBOX)
+        expected = grid.width * grid.height / (512 * 512) * (1 / 3) * 2
+        assert estimate_pu(grid) == pytest.approx(expected)
+
+    def test_singapore_strait_is_about_55_pu(self):
+        # Smallest live ROI — the demo box, and the cheapest to fetch.
+        grid = plan_fetch_grid((103.55, 1.03, 104.10, 1.35))
+        assert estimate_pu(grid) == pytest.approx(55, abs=3)
 
 
 class TestBuildProcessRequest:

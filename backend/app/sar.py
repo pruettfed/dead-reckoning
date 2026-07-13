@@ -9,10 +9,12 @@ Pipeline (per ROI, per pass):
 Credit budget: 30,000 Processing Units (PU) / month.
   - Catalog search (`search_scenes`) hits the free CDSE OData catalogue (0 PU).
   - Pixel fetch (`fetch_scene_pixels`) is the only PU-spending step: an ROI is
-    fetched as a grid of ≤2400 px tiles at 10 m/px, ~100 PU per analysis. A
-    GRD/COG download backend (0 PU) can replace it later behind the same
-    signature. Never drive discovery through the Copernicus Browser — its
-    rendering also consumes PU.
+    fetched as a grid of ≤2400 px tiles at 10 m/px. Cost scales with ROI area
+    (VV band + orthorectification, 8-bit output) at roughly grid_px / 393k PU
+    — ~55 PU for Singapore Strait up to ~720 PU for the larger northern boxes;
+    see `estimate_pu`, logged before every fetch. A GRD/COG download backend
+    (0 PU) can replace it later behind the same signature. Never drive
+    discovery through the Copernicus Browser — its rendering also consumes PU.
 
 Auth: pixel fetch uses CDSE OAuth2 client credentials (`CDSE_CLIENT_ID` /
 `CDSE_CLIENT_SECRET`); catalog search needs none.
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import math
 import string
 import time
@@ -33,6 +36,8 @@ import numpy as np
 from PIL import Image
 
 from app.config import get_settings
+
+log = logging.getLogger(__name__)
 
 CDSE_ODATA_URL = "https://catalogue.dataspace.copernicus.eu/odata/v1/Products"
 SH_TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
@@ -232,6 +237,21 @@ def plan_fetch_grid(
     return FetchGrid(width=width, height=height, tiles=tuple(tiles))
 
 
+# Process API Processing-Unit cost model, per
+# documentation.dataspace.copernicus.eu/APIs/SentinelHub/Overview/ProcessingUnit.html:
+PU_PIXELS_PER_UNIT = 512 * 512
+PU_BANDS_FACTOR = 1 / 3   # VV only; dataMask is excluded from the band count
+PU_ORTHO_FACTOR = 2.0     # processing.orthorectify = True
+
+
+def estimate_pu(grid: FetchGrid) -> float:
+    return (
+        grid.width * grid.height / PU_PIXELS_PER_UNIT
+        * PU_BANDS_FACTOR
+        * PU_ORTHO_FACTOR
+    )
+
+
 def _iso_z(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -314,8 +334,12 @@ async def fetch_scene_pixels(
     *,
     client: httpx.AsyncClient | None = None,
 ) -> SarChip:
-    """Fetch `bbox` from `scene` as one stitched uint8 chip. Spends PU (~100/ROI)."""
+    """Fetch `bbox` from `scene` as one stitched uint8 chip. Spends PU (see estimate_pu)."""
     grid = plan_fetch_grid(bbox)
+    log.info(
+        "fetching %s: %dx%d px in %d tiles (~%.0f PU)",
+        scene.name, grid.width, grid.height, len(grid.tiles), estimate_pu(grid),
+    )
     chip = np.zeros((grid.height, grid.width), dtype=np.uint8)
     semaphore = asyncio.Semaphore(4)
 

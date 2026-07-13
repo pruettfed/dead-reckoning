@@ -38,7 +38,7 @@ Maritime OSINT platform: detect ships in Sentinel-1 SAR (radar) imagery, cross-r
 - **PostGIS everywhere** — never SQLite in Docker or prod.
 - **Fusion in SQL** — `ST_DWithin`, 500 m / 2 h; never reimplement distance in Python.
 - **Clip to ROI ∩ footprint** — a detection outside the imaged footprint is unobserved, not dark. Never mosaic passes for correlation (different times = vessels moved).
-- **PU budget 30,000/mo** — only pixel fetch spends PU (~100/analysis); catalog search free. Scenes DB-cached (re-analysis = 0 PU). Never discover via Copernicus Browser (burns PU).
+- **PU budget 30,000/mo** — only pixel fetch spends PU (~55–720/analysis, scales with ROI area — see `estimate_pu`); catalog search free. Scenes DB-cached (re-analysis = 0 PU). Never discover via Copernicus Browser (burns PU).
 - **Analysis admin-gated** — `POST /api/analysis/{roi}` needs `X-Analysis-Key`; all availability checks run before any PU is spent.
 - **ROIs water-centered, ≤ ~250 km** — one Sentinel-1 IW swath; keeps land returns out of detection.
 - **Config from env** — CORS, CDSE creds; never hardcoded. `.env` never committed; `.env.example` is the contract. No imagery in repo (`.gitignore` excludes `*.tif`/`*.geotiff`/`*.nc`/`data/`).
