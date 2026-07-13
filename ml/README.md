@@ -22,6 +22,12 @@ handles any of them: point it at the images dir and the COCO train/val jsons.
 
 ## Colab cells (copy-paste in order)
 
+> **Where each step runs:** cells 0–6 all run **in the Colab notebook in your
+> browser** (on Google's GPU machine — nothing here touches your laptop).
+> Only **step 7 runs in your own terminal**, on your local clone of the repo.
+> Cells prefixed `!` are shell commands Colab runs on its machine; `%cd` is a
+> Colab magic; the rest is Python.
+
 **0. Runtime → Change runtime type → T4 GPU**, then verify:
 
 ```python
@@ -31,8 +37,11 @@ handles any of them: point it at the images dir and the COCO train/val jsons.
 **1. Install + clone this repo:**
 
 ```python
+from getpass import getpass
+token = getpass("GitHub PAT: ")  # use a PAT with read-access
+user = "USERNAME"
 !pip -q install ultralytics
-!git clone https://github.com/YOUR_GITHUB_USERNAME/dead-reckoning.git  # [USER: your repo URL]
+!git clone https://github.com/pruettfed/dead-reckoning.git
 %cd dead-reckoning
 ```
 
@@ -59,7 +68,7 @@ download it (Drive file id goes where marked):
 **4. Train (~1–2 h on T4):**
 
 ```python
-!python ml/train.py --data ml/hrsid.yaml
+!python ml/train.py --data ml/hrsid.yaml # optionally set number of epochs here (50 by default)
 ```
 
 **5. Evaluate** (expect mAP50 ≳ 0.85 on HRSID for yolov8n):
@@ -68,14 +77,14 @@ download it (Drive file id goes where marked):
 !python ml/eval.py runs/detect/train/weights/best.pt --data ml/hrsid.yaml
 ```
 
-**6. Download the checkpoint:**
+**6. Download the checkpoint** (push into local `~/Downloads/`):
 
 ```python
 from google.colab import files
 files.download("runs/detect/train/weights/best.pt")
 ```
 
-**7. Install it locally:**
+**7. Install it locally**
 
 ```bash
 mv ~/Downloads/best.pt backend/models/sar_ship.pt
