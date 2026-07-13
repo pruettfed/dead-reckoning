@@ -10,156 +10,201 @@ All responses are JSON. Timestamps are ISO-8601 UTC.
 
 ## `GET /api/health`
 
-Liveness check.
+Liveness check plus per-source health.
 
 **Response**
 
 ```json
-{ "status": "ok" }
+{
+  "status": "ok",
+  "sources": {
+    "ais": {
+      "state": "connected",
+      "last_message_at": "2026-07-11T20:51:07.412Z",
+      "lag_seconds": 1.2,
+      "connected_since": "2026-07-11T20:49:50.679Z",
+      "reconnect_count": 0,
+      "error_count": 0,
+      "last_error": null
+    },
+    "sar_sentinel1": { "state": "disconnected", "...": "..." }
+  }
+}
 ```
+
+`state` is `connected`, `disconnected`, `error`, or `stale` (connected but no
+message for `SOURCE_STALE_AFTER_SECONDS`). `sar_sentinel1` connects only while
+an analysis is fetching imagery.
 
 ---
 
 ## `GET /api/rois`
 
-Returns the list of predefined Regions of Interest. The active ROI (set via `ACTIVE_ROI`) is the one currently being ingested; the others are available for future ROI-switching.
+The predefined Regions of Interest. Every AIS endpoint takes `?roi=<name>`;
+ingestion always covers all of them simultaneously (switching ROI is a view filter).
 
-**Response** — array of ROI objects
-
-| Field   | Type             | Description                                   |
-|---------|------------------|-----------------------------------------------|
-| `name`  | string           | Machine key (matches `ACTIVE_ROI` env values) |
-| `label` | string           | Human-readable label                          |
-| `bbox`  | [min_lon, min_lat, max_lon, max_lat] | Bounding box in WGS-84 degrees |
-
-**Example**
+| Field   | Type   | Description          |
+|---------|--------|----------------------|
+| `name`  | string | Machine key          |
+| `label` | string | Human-readable label |
+| `bbox`  | [min_lon, min_lat, max_lon, max_lat] | WGS-84 degrees |
 
 ```json
 [
-  { "name": "south_china_sea",      "label": "South China Sea",       "bbox": [105.0,  0.0, 122.0, 23.0] },
-  { "name": "strait_of_hormuz",     "label": "Strait of Hormuz",      "bbox": [ 54.0, 24.0,  58.5, 27.5] },
-  { "name": "gulf_of_guinea",       "label": "Gulf of Guinea",        "bbox": [ -5.0, -2.0,   9.0,  7.0] },
-  { "name": "eastern_mediterranean","label": "Eastern Mediterranean", "bbox": [ 22.0, 30.0,  36.0, 38.0] }
+  { "name": "singapore_strait",  "label": "Singapore Strait",                        "bbox": [103.55, 1.03, 104.10, 1.35] },
+  { "name": "north_taiwan",      "label": "North Taiwan / ECS approaches",           "bbox": [120.70, 25.10, 122.40, 26.30] },
+  { "name": "gulf_of_finland",   "label": "Gulf of Finland (shadow-fleet corridor)", "bbox": [24.50, 59.20, 28.60, 60.30] },
+  { "name": "skagen_kattegat",   "label": "Skagen Anchorage (Kattegat)",             "bbox": [10.00, 57.30, 11.80, 58.30] },
+  { "name": "bosphorus_marmara", "label": "Bosphorus Approaches (Sea of Marmara)",   "bbox": [28.45, 40.72, 29.45, 40.98] },
+  { "name": "malta_hurds_bank",  "label": "Hurd Bank (Malta offshore STS)",          "bbox": [14.20, 35.60, 15.00, 36.20] }
 ]
 ```
+
+> Every ROI is probe-verified against live AISStream coverage — the narrative
+> *and* the receiver network have to line up, or fusion has nothing to correlate
+> against. See [ais-coverage.md](ais-coverage.md) for the verification data and
+> why regions like Hormuz, the Spratlys, and Kerch were dropped. Analysis in an
+> ROI whose AIS buffer is empty is refused (409) rather than producing all-dark
+> false positives.
 
 ---
 
 ## `GET /api/vessels`
 
-Latest AIS position per vessel inside the active ROI, within a trailing 6-hour window.
+Latest AIS position per vessel inside an ROI, within a trailing
+`VESSEL_ACTIVE_MINUTES` (default 30 min) window ending at `at`.
 
 **Query parameters**
 
-| Param | Type            | Default | Description                                                     |
-|-------|-----------------|---------|-----------------------------------------------------------------|
-| `at`  | ISO-8601 string | now     | Return positions as of this UTC moment. Naive datetimes are treated as UTC. |
+| Param | Type            | Default            | Description                          |
+|-------|-----------------|--------------------|--------------------------------------|
+| `roi` | string          | `singapore_strait` | ROI name; unknown name → 400         |
+| `at`  | ISO-8601 string | now                | Positions as of this UTC moment. The frontend sets this to a SAR scene's `sensed_at` to show vessels at acquisition time. |
 
-**Response** — array of vessel snapshot objects
-
-| Field       | Type    | Description                                             |
-|-------------|---------|---------------------------------------------------------|
-| `mmsi`      | integer | Maritime Mobile Service Identity (vessel ID)            |
-| `time`      | string  | UTC timestamp of the position                           |
-| `lat`       | float   | Latitude (WGS-84)                                       |
-| `lon`       | float   | Longitude (WGS-84)                                      |
-| `sog`       | float   | Speed over ground (knots); `null` if unknown            |
-| `cog`       | float   | Course over ground (degrees 0–360); `null` if unknown   |
-| `ship_name` | string  | Vessel name from AIS static data; `null` until received |
-| `ship_type` | integer | AIS ship type code (see table below); `null` until received |
-| `callsign`  | string  | Radio callsign; `null` until received                   |
-
-**Examples**
+**Response** — array of vessel snapshots: `mmsi`, `time`, `lat`, `lon`, `sog`,
+`cog`, `ship_name`, `ship_type` (AIS code, table below), `callsign`. Static
+fields are `null` until the vessel's `ShipStaticData` broadcast is seen.
 
 ```bash
-# Current snapshot
-curl http://localhost:8000/api/vessels
-
-# Snapshot 30 minutes ago
-curl "http://localhost:8000/api/vessels?at=2026-05-10T03:00:00Z"
+curl "http://localhost:8000/api/vessels?roi=north_taiwan&at=2026-07-11T02:14:36Z"
 ```
 
-```json
-[
-  {
-    "mmsi": 477996333,
-    "time": "2026-05-10T03:19:08Z",
-    "lat": 22.2906,
-    "lon": 114.1685,
-    "sog": 7.7,
-    "cog": 295.4,
-    "ship_name": "SEA SPARKLE",
-    "ship_type": 40,
-    "callsign": "VRS5586"
-  },
-  {
-    "mmsi": 413465130,
-    "time": "2026-05-10T03:18:55Z",
-    "lat": 22.3465,
-    "lon": 114.1127,
-    "sog": 0.0,
-    "cog": 74.8,
-    "ship_name": null,
-    "ship_type": null,
-    "callsign": null
-  }
-]
-```
+---
 
-**Notes**
-- Each MMSI appears at most once (latest position in the window).
-- `ship_name`, `ship_type`, and `callsign` are populated from `ShipStaticData` AIS messages, which vessels broadcast roughly every 6 minutes. Expect `null` for vessels seen only briefly.
-- The 6-hour window is a fixed trailing window from `at`; it is not configurable at query time.
+## `GET /api/vessels/count`
+
+Distinct vessels active in the ROI in the last `VESSEL_ACTIVE_MINUTES`.
+
+| Param | Type   | Default            |
+|-------|--------|--------------------|
+| `roi` | string | `singapore_strait` |
+
+**Response** `{ "count": 42 }`
 
 ---
 
 ## `GET /api/vessels/{mmsi}/track`
 
-Full position history for a single vessel, ordered oldest → newest. Suitable for rendering as a polyline on a map or as a timeline.
+Position history for one vessel, oldest → newest.
 
-**Path parameter**
+| Param   | Type    | Default | Description                                              |
+|---------|---------|---------|----------------------------------------------------------|
+| `hours` | integer | 12      | Trailing window; clamped to `24 × AIS_RETENTION_DAYS`.   |
 
-| Param  | Type    | Description                |
-|--------|---------|----------------------------|
-| `mmsi` | integer | Vessel MMSI to look up     |
+**Response** — array of `time`, `lat`, `lon`, `sog`, `cog`, `ship_name`,
+`ship_type`, `callsign`. Empty array if the MMSI has no rows in the window.
 
-**Query parameters**
+---
 
-| Param   | Type    | Default | Description                                                         |
-|---------|---------|---------|---------------------------------------------------------------------|
-| `hours` | integer | 72      | How many trailing hours of history to return. Clamped to `24 × AIS_RETENTION_DAYS` (default 168h / 7 days). |
+## `POST /api/analysis/{roi}` 🔒 admin-only
 
-**Response** — array of position objects, ascending by time
+Analyze the newest Sentinel-1 pass over the ROI: fetch pixels (Sentinel Hub
+Process API — **spends Processing Units**, ~100 PU per ROI), run YOLOv8 ship
+detection, fuse against the AIS buffer, store the results.
 
-| Field       | Type    | Description                                             |
-|-------------|---------|---------------------------------------------------------|
-| `time`      | string  | UTC timestamp                                           |
-| `lat`       | float   | Latitude                                                |
-| `lon`       | float   | Longitude                                               |
-| `sog`       | float   | Speed over ground (knots); `null` if unknown            |
-| `cog`       | float   | Course over ground (degrees); `null` if unknown         |
-| `ship_name` | string  | Vessel name (same value on every row, `null` if not yet received) |
-| `ship_type` | integer | AIS ship type code; `null` if not yet received          |
-| `callsign`  | string  | Radio callsign; `null` if not yet received              |
+**Auth:** header `X-Analysis-Key: <ANALYSIS_API_KEY>`. This endpoint is never
+exposed to regular users — analysis spends the operator's PU budget. Users see
+results and pass times via the read-only endpoints below.
 
-**Example**
+**Responses**
+
+| Code | Meaning |
+|------|---------|
+| 202  | Accepted — `{ "scene_id": "...", "status": "processing" }`; poll `GET /api/scenes`. |
+| 200  | Scene already processed — served from DB, 0 PU. |
+| 400  | Unknown ROI. |
+| 401  | Missing/wrong `X-Analysis-Key`. |
+| 409  | Analysis already running for this ROI, or no eligible scene (none in the last 3 days inside the AIS buffer — let AIS ingest a few hours first). |
+| 503  | `ANALYSIS_API_KEY` unset, CDSE credentials unset, or model checkpoint missing (`backend/models/sar_ship.pt`, see `ml/README.md`). All checked **before** any PU is spent. |
 
 ```bash
-# Last 24 hours of track for MMSI 477996333
-curl "http://localhost:8000/api/vessels/477996333/track?hours=24"
+curl -X POST -H "X-Analysis-Key: $ANALYSIS_API_KEY" \
+  http://localhost:8000/api/analysis/singapore_strait
 ```
+
+---
+
+## `GET /api/scenes`
+
+Analyzed (and in-flight) SAR scenes for an ROI, newest first.
+
+| Param   | Type    | Default            |
+|---------|---------|--------------------|
+| `roi`   | string  | `singapore_strait` |
+| `limit` | integer | 10 (max 50)        |
+
+**Response** — array of scene objects:
+
+| Field             | Description                                        |
+|-------------------|----------------------------------------------------|
+| `id`              | CDSE product UUID                                  |
+| `name`            | Sentinel-1 product name                            |
+| `sensed_at`       | Acquisition timestamp — the correlation moment     |
+| `platform`        | `S1A` / `S1C` / `S1D`                              |
+| `status`          | `processing` / `processed` / `failed`              |
+| `processed_at`    | When analysis finished; `null` until then          |
+| `error`           | Failure reason when `status = failed`              |
+| `footprint`       | GeoJSON polygon of the imaged area                 |
+| `detection_count` | Total SAR detections                               |
+| `dark_count`      | Detections with no AIS match                       |
+
+---
+
+## `GET /api/scenes/{scene_id}/detections`
+
+All detections for a scene, highest confidence first. 404 for unknown scenes.
+
+| Field                | Description                                            |
+|----------------------|--------------------------------------------------------|
+| `lat`, `lon`         | Detection centroid                                     |
+| `confidence`         | Model confidence 0–1                                   |
+| `confidence_bucket`  | `high` (≥0.7) / `medium` (≥0.4) / `low`                |
+| `is_dark`            | `true` = no AIS match within 500 m / ±2 h; `null` = not yet fused |
+| `matched_mmsi`       | MMSI of the matched vessel; `null` when dark           |
+| `match_distance_m`   | Distance to the matched AIS position                   |
+| `match_time_delta_s` | Signed seconds between AIS fix and acquisition         |
+| `ship_name`, `ship_type`, `callsign` | Static data of the matched vessel      |
+
+---
+
+## `GET /api/analysis/next-pass`
+
+Free (0 PU) pass timing for an ROI, from the CDSE catalog. Cached 10 minutes.
+
+| Param | Type   | Default            |
+|-------|--------|--------------------|
+| `roi` | string | `singapore_strait` |
 
 ```json
-[
-  { "time": "2026-05-10T03:17:55Z", "lat": 22.2906, "lon": 114.1685, "sog": 10.1, "cog": 75.4, "ship_name": "SEA SPARKLE", "ship_type": 40, "callsign": "VRS5586" },
-  { "time": "2026-05-10T03:18:36Z", "lat": 22.2998, "lon": 114.1669, "sog": 1.5,  "cog": 80.2, "ship_name": "SEA SPARKLE", "ship_type": 40, "callsign": "VRS5586" },
-  { "time": "2026-05-10T03:21:03Z", "lat": 22.2998, "lon": 114.1669, "sog": 0.0,  "cog": 65.5, "ship_name": "SEA SPARKLE", "ship_type": 40, "callsign": "VRS5586" }
-]
+{
+  "latest_scene_sensed_at": "2026-07-11T02:14:36Z",
+  "next_expected_at": "2026-07-12T02:10:09Z",
+  "last_processed_at": null
+}
 ```
 
-**Notes**
-- Returns an empty array if the MMSI has no data in the requested window.
-- `ship_name`, `ship_type`, and `callsign` are the same on every row (joined from `ship_metadata`).
+`next_expected_at` is the median interval of the last 14 days of passes rolled
+forward — `null` when fewer than 3 passes exist (e.g. sparse Black Sea coverage).
 
 ---
 
@@ -178,34 +223,3 @@ curl "http://localhost:8000/api/vessels/477996333/track?hours=24"
 | 90–99 | Other            | Military, diving ops, etc.   |
 
 Full table: [ITU-R M.1371-5 Table 53](https://www.itu.int/rec/R-REC-M.1371/en)
-
----
-
-## Switching the active Region of Interest
-
-The active ROI controls which bounding box the AISStream WebSocket subscribes to. It is set at startup via the `ACTIVE_ROI` environment variable.
-
-**Available values**
-
-| `ACTIVE_ROI` value      | Region                 | Bbox (lon_min, lat_min, lon_max, lat_max) |
-|-------------------------|------------------------|-------------------------------------------|
-| `south_china_sea`       | South China Sea        | 105, 0, 122, 23                           |
-| `strait_of_hormuz`      | Strait of Hormuz       | 54, 24, 58.5, 27.5                        |
-| `gulf_of_guinea`        | Gulf of Guinea         | -5, -2, 9, 7                              |
-| `eastern_mediterranean` | Eastern Mediterranean  | 22, 30, 36, 38                            |
-
-**How to switch**
-
-1. Edit `backend/.env`:
-   ```
-   ACTIVE_ROI=strait_of_hormuz
-   ```
-2. Restart the backend:
-   ```bash
-   docker compose restart backend
-   ```
-   The new subscription takes effect on the next WebSocket connection (within a few seconds of restart).
-
-**Limitation:** live ROI switching (without a restart) is not yet implemented. The AISStream protocol supports it on the same connection, but the frontend ROI selector that would drive it hasn't been built yet. This is planned for the Weeks 7–9 UI phase.
-
-**Data after switching:** only positions received after the restart appear in the new ROI. Historical data from the previous ROI is retained in `ais_positions` (subject to the 7-day retention window) and is still queryable by MMSI via `/api/vessels/{mmsi}/track`.

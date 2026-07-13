@@ -4,9 +4,16 @@ Maritime OSINT platform that fuses Sentinel-1 SAR imagery with public AIS data t
 
 > Portfolio project. All data sources are public and legal.
 
+## How it works
+
+1. **AIS ingestion** — an always-on AISStream WebSocket streams live vessel positions for six ROIs into PostGIS: Singapore Strait, North Taiwan / ECS, Gulf of Finland, Skagen (Kattegat), Bosphorus approaches, and Malta's Hurd Bank. Each pairs a dark-vessel narrative (shadow fleet, gray-zone activity, dark STS transfers) with probe-verified AISStream receiver coverage — see [`docs/ais-coverage.md`](docs/ais-coverage.md).
+2. **SAR detection** — on demand, the newest Sentinel-1 pass over an ROI is fetched as calibrated radar chips (Sentinel Hub Process API via Copernicus CDSE) and run through a YOLOv8 model fine-tuned on a SAR ship dataset.
+3. **Fusion** — each detected hull is cross-referenced against AIS at the acquisition timestamp (`ST_DWithin`, 500 m / ±2 h). No match → **dark vessel**, with a confidence level from the model.
+4. **Map UI** — react-leaflet map with live vessels, tracks, SAR footprints, and dark/matched detection markers.
+
 ## Tech stack
 
-- **Backend:** Python 3.12, FastAPI, SQLAlchemy (async), GeoAlchemy2, PostGIS 3.4 / PostgreSQL 16
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy (async), GeoAlchemy2, PostGIS 3.4 / PostgreSQL 16, ultralytics YOLOv8 (CPU inference)
 - **Frontend:** Vite 5, React 18, TypeScript, react-leaflet, TanStack Query
 - **Infra:** Docker Compose (local), Railway (backend), Vercel (frontend)
 
@@ -25,7 +32,7 @@ docker compose up --build
 
 Verify it's healthy:
 ```bash
-curl http://localhost:8000/api/health   # {"status":"ok"}
+curl http://localhost:8000/api/health   # {"status":"ok","sources":{...}}
 ```
 
 **Start the frontend** (native, faster hot-reload):
@@ -40,6 +47,24 @@ Or spin everything up via Compose:
 docker compose --profile frontend up --build
 ```
 
+### Enabling SAR analysis
+
+Analysis is optional and admin-gated (it spends Copernicus Processing Units). Three ingredients, all in `backend/.env`:
+
+1. `AISSTREAM_API_KEY` — free at [aisstream.io](https://aisstream.io); without it there is no AIS buffer to fuse against.
+2. `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` — OAuth2 client credentials from [dataspace.copernicus.eu](https://dataspace.copernicus.eu).
+3. `ANALYSIS_API_KEY` — any secret string; callers pass it as `X-Analysis-Key`.
+
+Then drop a trained checkpoint at `backend/models/sar_ship.pt` — the full Colab fine-tune runbook is in [`ml/README.md`](ml/README.md). The `backend/models/` directory is volume-mounted, so no rebuild is needed.
+
+Trigger an analysis (or set `VITE_ANALYSIS_API_KEY` in `frontend/.env` to get a dev-only button in the UI):
+```bash
+curl -X POST -H "X-Analysis-Key: $ANALYSIS_API_KEY" \
+  http://localhost:8000/api/analysis/singapore_strait
+```
+
+Full endpoint reference: [`docs/api.md`](docs/api.md).
+
 ## Commands
 
 **Compose**
@@ -48,7 +73,7 @@ docker compose --profile frontend up --build
 - `docker compose up -d` — run in background (detached)
 - `docker compose --profile frontend up` — also start Vite dev server (:5173)
 - `docker compose down` — stop and remove containers
-- `docker compose down -v` — also wipe the postgres_data volume (fresh DB)
+- `docker compose down -v` — also wipe the postgres_data volume (fresh DB; required after schema changes — tables are created at startup, not migrated)
 - `docker compose logs backend -f` — tail backend logs
 - `docker compose logs frontend -f` — tail frontend logs
 - `docker compose restart backend` — restart the API without full teardown
@@ -61,28 +86,46 @@ docker compose --profile frontend up --build
 
 ## Environment variables
 
-Compose sets these automatically. For native dev, copy `.env.example` → `.env` in `backend/`:
+Compose sets the first three automatically. For native dev (and for all secrets), copy `.env.example` → `.env` in `backend/`:
 
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://dvd:dvd@db:5432/dvd` | Async Postgres connection string |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
 | `ENV` | `development` | Environment name |
+| `AISSTREAM_API_KEY` | — | AIS WebSocket key (ingest disabled without it) |
+| `AIS_RETENTION_DAYS` | `2` | Rolling AIS history window |
+| `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` | — | Copernicus OAuth2 credentials for pixel fetch |
+| `ANALYSIS_API_KEY` | — | Shared secret gating `POST /api/analysis/{roi}` |
+| `MODEL_PATH` | `models/sar_ship.pt` | YOLOv8 checkpoint path |
+
+The complete contract lives in [`backend/.env.example`](backend/.env.example).
 
 ## Project layout
 
 ```
 backend/app/
-  main.py      FastAPI app — CORS, health endpoint, vessels endpoint
+  main.py      FastAPI app — AIS, scene, detection, and analysis endpoints
   config.py    Settings loaded from environment (pydantic-settings)
   database.py  Async engine, session dependency, SQLAlchemy Base
-  models.py    Database models
-  ais.py       AIS ingestion pipeline
-  sar.py       Sentinel-1 SAR vessel detection (YOLOv8) — via CDSE
-  fusion.py    SAR ↔ AIS dark-vessel fusion
+  models.py    Database models — AIS positions, SAR scenes, SAR detections
+  ais.py       AISStream message parsing
+  ingest.py    AIS WebSocket ingestion + retention pruning
+  rois.py      Static ROI registry
+  sources.py   Per-source health tracking (surfaced at /api/health)
+  sar.py       Sentinel-1 catalog search + Process API pixel fetch (CDSE)
+  detect.py    Tiled YOLOv8 inference over SAR chips
+  fusion.py    SAR ↔ AIS dark-vessel fusion (PostGIS ST_DWithin)
+  pipeline.py  Analysis orchestration: search → fetch → detect → fuse
 frontend/src/
-  App.tsx      Root component
-  api.ts       Typed fetch wrapper for /api
+  App.tsx           Root component — ROI selector, scene-as-time control
+  api.ts            Typed fetch wrapper for /api
+  components/       MapView, VesselLayer, SceneLayer, ScenePanel
+ml/
+  README.md         Colab runbook: fine-tune YOLOv8 on HRSID → best.pt
+  prepare_dataset.py  COCO → YOLO dataset converter
+  train.py / eval.py  Training and mAP evaluation
 docs/
-  scaffold-smoke-test.md   Verified boot results and known issues
+  api.md            Endpoint reference
+  ais-coverage.md   Verified AISStream coverage per ROI + alternative sources
 ```

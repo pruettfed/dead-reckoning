@@ -1,0 +1,7 @@
+# Inference-only ML deps for the backend (YOLOv8 via ultralytics).
+# CPU wheels keep the image ~1.2 GB instead of ~6 GB; training happens on
+# Colab GPU (see ml/README.md), never in this image.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+ultralytics

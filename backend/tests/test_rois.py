@@ -3,12 +3,14 @@ import pytest
 from app.rois import ROIS, get_roi
 
 
-def test_four_rois_present():
+def test_expected_rois_present():
     assert set(ROIS) == {
-        "strait_of_hormuz",
-        "taiwan_strait",
-        "spratly_islands",
-        "black_sea",
+        "singapore_strait",
+        "north_taiwan",
+        "gulf_of_finland",
+        "skagen_kattegat",
+        "bosphorus_marmara",
+        "malta_hurds_bank",
     }
 
 
@@ -22,7 +24,7 @@ def test_bbox_is_well_formed(name: str):
 
 
 def test_get_roi_returns_known():
-    assert get_roi("strait_of_hormuz").label == "Fujairah Anchorage (Gulf of Oman)"
+    assert get_roi("singapore_strait").label == "Singapore Strait"
 
 
 def test_get_roi_unknown_raises():

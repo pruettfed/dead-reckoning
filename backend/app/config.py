@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     cdse_client_id: str | None = Field(default=None, alias="CDSE_CLIENT_ID")
     cdse_client_secret: str | None = Field(default=None, alias="CDSE_CLIENT_SECRET")
 
+    # SAR analysis pipeline
+    analysis_api_key: str | None = Field(default=None, alias="ANALYSIS_API_KEY")
+    sar_model_path: str = Field(default="models/sar_ship.pt", alias="MODEL_PATH")
+    detection_conf_threshold: float = Field(default=0.25, alias="DETECTION_CONF_THRESHOLD")
+    fusion_max_distance_m: float = Field(default=500.0, alias="FUSION_MAX_DISTANCE_M")
+    fusion_max_time_delta_hours: float = Field(default=2.0, alias="FUSION_MAX_TIME_DELTA_HOURS")
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: str | list[str]) -> list[str]:
