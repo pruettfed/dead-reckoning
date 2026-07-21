@@ -100,6 +100,17 @@ class TestIndexImages:
         index = prepare_dataset.index_images(images_root)
         assert set(index) == set(ids)
 
+    def test_missing_directory_aborts_rather_than_indexing_nothing(self, tmp_path):
+        """rglob on a nonexistent dir yields nothing, which otherwise looks like
+        a manifest mismatch and buries the real cause (a wrong --images path)."""
+        with pytest.raises(SystemExit, match="not a directory"):
+            prepare_dataset.index_images(tmp_path / "nope")
+
+    def test_directory_without_images_aborts(self, tmp_path):
+        (tmp_path / "empty").mkdir()
+        with pytest.raises(SystemExit, match="no images found"):
+            prepare_dataset.index_images(tmp_path / "empty")
+
 
 class TestConvertVocSplit:
     def test_keeps_every_positive_and_caps_backgrounds(self, tmp_path):
@@ -113,7 +124,7 @@ class TestConvertVocSplit:
             "train",
             max_background_frac=0.2,
         )
-        assert missing == 0
+        assert missing == []
         # 10 positives, backgrounds capped so bg/(pos+bg) <= 0.2 → 2 kept
         assert backgrounds == 2
         assert converted == 12
@@ -143,7 +154,7 @@ class TestConvertVocSplit:
             kept.append(sorted(p.stem for p in (out / "images" / "train").glob("*.jpg")))
         assert kept[0] == kept[1]
 
-    def test_missing_image_or_xml_is_counted(self, tmp_path):
+    def test_missing_image_or_xml_is_reported(self, tmp_path):
         images_root, annotations, ids = _build_voc_fixture(tmp_path, 3, 0)
         (annotations / f"{ids[0]}.xml").unlink()
         _, missing, _ = prepare_dataset.convert_voc_split(
@@ -153,7 +164,7 @@ class TestConvertVocSplit:
             tmp_path / "out",
             "train",
         )
-        assert missing == 2
+        assert missing == [ids[0], "99_9_9"]
 
 
 class TestReadIds:
@@ -161,3 +172,32 @@ class TestReadIds:
         manifest = tmp_path / "train.txt"
         manifest.write_text("01_1_1\n01_1_2\n\n  01_1_3  \n")
         assert prepare_dataset.read_ids(manifest) == ["01_1_1", "01_1_2", "01_1_3"]
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "01_1_1",
+            "01_1_1.jpg",
+            "JPEGImages_sub_train/01_1_1.jpg",
+            "JPEGImages_sub/JPEGImages_sub_train/01_1_1",
+        ],
+    )
+    def test_normalizes_extensions_and_prefixes(self, tmp_path, line):
+        """A manifest variant must not silently match nothing."""
+        manifest = tmp_path / "train.txt"
+        manifest.write_text(line + "\n")
+        assert prepare_dataset.read_ids(manifest) == ["01_1_1"]
+
+    def test_handles_crlf(self, tmp_path):
+        manifest = tmp_path / "train.txt"
+        manifest.write_bytes(b"01_1_1\r\n01_1_2\r\n")
+        assert prepare_dataset.read_ids(manifest) == ["01_1_1", "01_1_2"]
+
+
+class TestDescribeMismatch:
+    def test_names_the_unmatched_ids_and_what_was_indexed(self, tmp_path):
+        images_root, annotations, _ = _build_voc_fixture(tmp_path, 2, 0)
+        index = prepare_dataset.index_images(images_root)
+        message = prepare_dataset.describe_mismatch(["99_9_9"], index, annotations)
+        assert "99_9_9" in message
+        assert "01_1_0" in message  # an example of what actually got indexed

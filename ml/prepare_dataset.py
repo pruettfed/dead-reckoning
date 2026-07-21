@@ -107,16 +107,33 @@ def index_images(images_dir: Path) -> dict[str, Path]:
     JPEGImages_sub_test/ inside JPEGImages_sub/, so point --images at the parent
     and let the walk find them either way.
     """
-    return {
+    if not images_dir.is_dir():
+        raise SystemExit(f"--images is not a directory: {images_dir}")
+    index = {
         path.stem: path
         for path in sorted(images_dir.rglob("*"))
         if path.suffix.lower() in IMAGE_SUFFIXES
     }
+    if not index:
+        raise SystemExit(
+            f"no images found under {images_dir} (looked recursively for "
+            f"{', '.join(IMAGE_SUFFIXES)})"
+        )
+    return index
 
 
 def read_ids(manifest: Path) -> list[str]:
-    """One image stem per line (ImageSets/train.txt, ImageSets/test.txt)."""
-    return [line.strip() for line in manifest.read_text().splitlines() if line.strip()]
+    """One image per line (ImageSets/train.txt, ImageSets/test.txt) → bare stems.
+
+    VOC manifests are usually bare stems, but variants ship a file extension or a
+    directory prefix. Normalising through Path().stem accepts all three rather
+    than silently matching nothing.
+    """
+    return [
+        Path(line.strip()).stem
+        for line in manifest.read_text().splitlines()
+        if line.strip()
+    ]
 
 
 def convert_voc_split(
@@ -128,10 +145,10 @@ def convert_voc_split(
     *,
     max_background_frac: float | None = None,
     seed: int = 0,
-) -> tuple[int, int, int]:
+) -> tuple[int, list[str], int]:
     """Copy images and write YOLO labels for one VOC split.
 
-    Returns (converted, missing, backgrounds_kept).
+    Returns (converted, missing_ids, backgrounds_kept).
 
     `max_background_frac` caps ship-free images as a fraction of the written
     split. LS-SSDD is ~9,000 sub-images against ~6,000 ship instances, so the
@@ -147,11 +164,11 @@ def convert_voc_split(
 
     positives: list[tuple[str, list[str]]] = []
     backgrounds: list[tuple[str, list[str]]] = []
-    missing = 0
+    missing: list[str] = []
     for image_id in ids:
         xml_path = annotations_dir / f"{image_id}.xml"
         if image_id not in index or not xml_path.exists():
-            missing += 1
+            missing.append(image_id)
             continue
         _, _, lines = parse_voc(xml_path)
         (positives if lines else backgrounds).append((image_id, lines))
@@ -171,6 +188,20 @@ def convert_voc_split(
         shutil.copy2(src, img_out / src.name)
         write_label(lbl_out / f"{image_id}.txt", lines)
     return len(positives) + len(backgrounds), missing, len(backgrounds)
+
+
+def describe_mismatch(missing: list[str], index: dict[str, Path], annotations_dir: Path) -> str:
+    """Explain *why* manifest entries didn't resolve — the useful half of the error."""
+    sample = missing[:3]
+    no_image = [i for i in sample if i not in index]
+    no_xml = [i for i in sample if not (annotations_dir / f"{i}.xml").exists()]
+    lines = [f"  first unmatched ids: {sample}"]
+    if no_image:
+        lines.append(f"  no image found for: {no_image}")
+        lines.append(f"  example indexed stems: {sorted(index)[:3]}")
+    if no_xml:
+        lines.append(f"  no XML found for:   {no_xml} (looked in {annotations_dir})")
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -219,10 +250,21 @@ def main() -> None:
         )
         print(
             f"{split}: {converted} images converted "
-            f"({converted - backgrounds} with ships, {backgrounds} background), {missing} missing"
+            f"({converted - backgrounds} with ships, {backgrounds} background), "
+            f"{len(missing)} missing"
         )
         if missing:
-            raise SystemExit(f"aborting: {missing} {split} images listed in {manifest} had no image or XML")
+            raise SystemExit(
+                f"aborting: {len(missing)}/{len(ids)} {split} images listed in {manifest} "
+                f"had no image or XML\n"
+                + describe_mismatch(missing, index, args.annotations)
+            )
+        if converted - backgrounds == 0:
+            raise SystemExit(
+                f"aborting: every {split} annotation parsed to zero ships. The XML layout "
+                f"is probably not <object><bndbox><xmin>… — inspect one:\n"
+                f"  head -40 {args.annotations}/{ids[0]}.xml"
+            )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,8 @@
+# Ultralytics dataset config for the chipped xView3 layout (see prepare_xview3.py).
+# `path` is resolved against the ultralytics `datasets_dir` setting — the runbook
+# sets it with:  yolo settings datasets_dir=/content/datasets
+path: xview3
+train: images/train
+val: images/val
+names:
+  0: ship
