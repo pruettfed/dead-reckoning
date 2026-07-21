@@ -13,15 +13,19 @@ def main() -> None:
     parser.add_argument("--data", default="ml/hrsid.yaml")
     parser.add_argument("--model", default="yolov8n.pt", help="base checkpoint to fine-tune")
     parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--imgsz", type=int, default=800, help="HRSID images are 800x800")
+    parser.add_argument("--imgsz", type=int, default=800, help="HRSID and LS-SSDD chips are both 800x800")
     parser.add_argument("--batch", type=int, default=16)
+    parser.add_argument("--name", default=None, help="run name under runs/detect/ — set it when training more than one checkpoint, or the second run silently lands in train2")
     args = parser.parse_args()
 
     model = YOLO(args.model)
-    results = model.train(data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch)
+    results = model.train(
+        data=args.data, epochs=args.epochs, imgsz=args.imgsz, batch=args.batch, name=args.name
+    )
     print(f"\nbest checkpoint: {results.save_dir}/weights/best.pt")
     print("copy it to backend/models/sar_ship.pt to enable detection")
 
 
 if __name__ == "__main__":
     main()
+
