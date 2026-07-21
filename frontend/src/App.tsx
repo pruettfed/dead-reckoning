@@ -12,6 +12,10 @@ export default function App() {
   // Default to the ROI with reliable AISStream coverage so the demo lands on live data
   const [roi, setRoi] = useState("singapore_strait");
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+  const [overlayOpacity, setOverlayOpacity] = useState(0.75);
+  // Off by default: masked hits are rocks and shore structures. On, they are the
+  // only way to see whether LAND_MASK_BUFFER_M has started eating berthed ships.
+  const [showLandMasked, setShowLandMasked] = useState(false);
 
   const rois = useQuery({ queryKey: ["rois"], queryFn: () => apiGet<Roi[]>("/rois") });
 
@@ -55,6 +59,14 @@ export default function App() {
           </select>
         </label>
 
+        {roiObj?.mode === "survey" && (
+          <p className="survey-note">
+            <b>Survey region — no AIS coverage.</b> AISStream has no receivers here,
+            so detections are reported as observed vessels. Nothing in this region
+            can be called dark.
+          </p>
+        )}
+
         <p>
           {at ? (
             <>
@@ -72,6 +84,31 @@ export default function App() {
           selectedSceneId={selectedSceneId}
           onSelect={setSelectedSceneId}
         />
+
+        {selectedScene?.has_overview && (
+          <label className="opacity-control">
+            SAR imagery{" "}
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={overlayOpacity}
+              onChange={(e) => setOverlayOpacity(Number(e.target.value))}
+            />
+          </label>
+        )}
+
+        {(selectedScene?.land_count ?? 0) > 0 && (
+          <label className="land-mask-control">
+            <input
+              type="checkbox"
+              checked={showLandMasked}
+              onChange={(e) => setShowLandMasked(e.target.checked)}
+            />{" "}
+            Show {selectedScene?.land_count} land-masked
+          </label>
+        )}
 
         <section>
           <h2>Sources</h2>
@@ -94,7 +131,14 @@ export default function App() {
 
       <MapView roi={roiObj}>
         <VesselLayer key={roi} roi={roi} at={at} />
-        {selectedScene && <SceneLayer scene={selectedScene} />}
+        {selectedScene && roiObj && (
+          <SceneLayer
+            scene={selectedScene}
+            mode={roiObj.mode}
+            overlayOpacity={overlayOpacity}
+            showLandMasked={showLandMasked}
+          />
+        )}
       </MapView>
     </div>
   );

@@ -2,21 +2,31 @@ from datetime import datetime
 
 from geoalchemy2 import Geography
 from sqlalchemy import (
+    ARRAY,
     BigInteger,
     Boolean,
     DateTime,
     Float,
     ForeignKey,
     Index,
+    LargeBinary,
     SmallInteger,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-__all__ = ["Base", "AISPosition", "ShipMetadata", "SarSceneRow", "SarDetection"]
+__all__ = [
+    "Base",
+    "AISPosition",
+    "ShipMetadata",
+    "SarSceneRow",
+    "SarDetection",
+    "LandPolygon",
+]
 
 
 class AISPosition(Base):
@@ -70,6 +80,14 @@ class SarSceneRow(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # processing | processed | failed
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The rectangle pixels were actually fetched for — the ROI's sar_bbox at the
+    # time of analysis, as (min_lon, min_lat, max_lon, max_lat). Stored rather
+    # than looked up because `footprint` is the full ~250 km swath, not the
+    # imaged area, and because a retuned sar_bbox would misplace old overlays.
+    imaged_bbox: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
+    # Downsampled grayscale PNG of the chip, for map display and eyeballing
+    # detections against the radar returns.
+    overview_png: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
     __table_args__ = (
         Index("ix_sar_scenes_roi_sensed_at", "roi", "sensed_at"),
@@ -98,3 +116,26 @@ class SarDetection(Base):
     matched_mmsi: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     match_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     match_time_delta_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Detection fell inside land_polygons (a rock, breakwater or shore
+    # structure, not a vessel). Excluded from fusion and from the default API
+    # response. Recomputable from `location` alone at zero PU — see landmask.py.
+    on_land: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+
+
+class LandPolygon(Base):
+    """Coastline geometry, clipped to the ROI sar_bboxes by scripts/load_land.py.
+
+    Deliberately not keyed to an ROI: boxes get retuned, and a polygon's job is
+    the same whoever asks. Only geometry overlapping some sar_bbox is loaded, so
+    the table stays a few MB rather than the source dataset's ~1 GB.
+    """
+
+    __tablename__ = "land_polygons"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    geom: Mapped[str] = mapped_column(
+        Geography(geometry_type="GEOMETRY", srid=4326, spatial_index=True),
+        nullable=False,
+    )

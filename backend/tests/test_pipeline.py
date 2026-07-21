@@ -3,7 +3,12 @@ footprint normalization. Orchestration (fetch/detect/fuse) is exercised live."""
 
 from datetime import datetime, timedelta, timezone
 
-from app.pipeline import estimate_next_pass, footprint_to_ewkt, pick_scene
+from app.pipeline import (
+    _footprint_wkts_in_window,
+    eligible_scenes,
+    estimate_next_pass,
+    footprint_to_ewkt,
+)
 from app.sar import SarScene
 
 NOW = datetime(2026, 7, 11, 12, 0, tzinfo=timezone.utc)
@@ -20,23 +25,59 @@ def make_scene(scene_id: str, sensed_at: datetime) -> SarScene:
     )
 
 
-class TestPickScene:
-    def test_newest_eligible_scene_wins(self):
+class TestEligibleScenes:
+    def test_newest_first(self):
+        """Order matters: the caller walks these until one covers the bbox."""
         old = make_scene("old", NOW - timedelta(days=2))
         new = make_scene("new", NOW - timedelta(hours=6))
         min_ais = NOW - timedelta(days=3)
-        assert pick_scene([old, new], min_ais, window_hours=2) is new
+        assert eligible_scenes([old, new], min_ais, window_hours=2) == [new, old]
 
-    def test_only_scene_outside_buffer_returns_none(self):
+    def test_scene_outside_buffer_excluded(self):
         scene = make_scene("s", NOW - timedelta(days=2))
         min_ais = NOW - timedelta(days=1)
-        assert pick_scene([scene], min_ais, window_hours=2) is None
+        assert eligible_scenes([scene], min_ais, window_hours=2) == []
 
-    def test_no_scenes_returns_none(self):
-        assert pick_scene([], NOW - timedelta(days=1), window_hours=2) is None
+    def test_no_scenes(self):
+        assert eligible_scenes([], NOW - timedelta(days=1), window_hours=2) == []
 
-    def test_no_ais_data_returns_none(self):
-        assert pick_scene([make_scene("a", NOW)], None, window_hours=2) is None
+    def test_no_ais_data_excludes_everything(self):
+        assert eligible_scenes([make_scene("a", NOW)], None, window_hours=2) == []
+
+
+class TestFootprintWktsInWindow:
+    """The Process API mosaics [-1 min, +10 min], so coverage is the union of
+    the slices in that window, not the anchor slice alone."""
+
+    @staticmethod
+    def _scene(scene_id, offset_min, wkt="POLYGON((0 0,1 0,1 1,0 1,0 0))"):
+        s = make_scene(scene_id, NOW + timedelta(minutes=offset_min))
+        return SarScene(
+            id=s.id, name=s.name, sensed_at=s.sensed_at,
+            footprint_wkt=wkt, platform=s.platform, is_cog=False,
+        )
+
+    def test_includes_slices_ahead_of_anchor(self):
+        anchor = self._scene("a", 0)
+        scenes = [anchor, self._scene("b", 5), self._scene("c", 9)]
+        assert len(_footprint_wkts_in_window(scenes, anchor)) == 3
+
+    def test_excludes_slices_outside_window(self):
+        anchor = self._scene("a", 0)
+        scenes = [anchor, self._scene("late", 11), self._scene("early", -2)]
+        assert len(_footprint_wkts_in_window(scenes, anchor)) == 1
+
+    def test_strips_srid_prefix(self):
+        anchor = self._scene("a", 0, "SRID=4326;POLYGON((0 0,1 0,1 1,0 1,0 0))")
+        assert _footprint_wkts_in_window([anchor], anchor) == [
+            "POLYGON((0 0,1 0,1 1,0 1,0 0))"
+        ]
+
+    def test_skips_scenes_without_footprint(self):
+        anchor = self._scene("a", 0)
+        assert _footprint_wkts_in_window([anchor, make_scene("nofp", NOW)], anchor) == [
+            "POLYGON((0 0,1 0,1 1,0 1,0 0))"
+        ]
 
 
 class TestEstimateNextPass:

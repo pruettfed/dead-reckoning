@@ -156,7 +156,7 @@ def build_subscribe_message(api_key: str, rois: Iterable[ROI]) -> dict[str, Any]
     boxes = [
         [[min_lat, min_lon], [max_lat, max_lon]]
         for roi in rois
-        for min_lon, min_lat, max_lon, max_lat in (roi.bbox,)
+        for min_lon, min_lat, max_lon, max_lat in (roi.ais_bbox,)
     ]
     return {
         "APIKey": api_key,

@@ -4,7 +4,8 @@ Base URL (local): `http://localhost:8000`
 Swagger: `http://localhost:8000/docs`
 Base URL via Vite proxy: `http://localhost:5173` (proxies `/api` → backend)
 
-All responses are JSON. Timestamps are ISO-8601 UTC.
+All responses are JSON except `GET /api/scenes/{id}/overview.png`, which returns
+`image/png`. Timestamps are ISO-8601 UTC.
 
 ---
 
@@ -43,29 +44,36 @@ an analysis is fetching imagery.
 The predefined Regions of Interest. Every AIS endpoint takes `?roi=<name>`;
 ingestion always covers all of them simultaneously (switching ROI is a view filter).
 
-| Field   | Type   | Description          |
-|---------|--------|----------------------|
-| `name`  | string | Machine key          |
-| `label` | string | Human-readable label |
-| `bbox`  | [min_lon, min_lat, max_lon, max_lat] | WGS-84 degrees |
+| Field      | Type   | Description          |
+|------------|--------|----------------------|
+| `name`     | string | Machine key          |
+| `label`    | string | Human-readable label |
+| `ais_bbox` | [min_lon, min_lat, max_lon, max_lat] | Area subscribed on AISStream; also the area AIS endpoints filter to |
+| `sar_bbox` | [min_lon, min_lat, max_lon, max_lat] | Area imaged and clipped to. Always inside `ais_bbox` |
+| `mode`     | `"fused"` \| `"survey"` | Whether detections here can be called dark |
 
 ```json
 [
-  { "name": "singapore_strait",  "label": "Singapore Strait",                        "bbox": [103.55, 1.03, 104.10, 1.35] },
-  { "name": "north_taiwan",      "label": "North Taiwan / ECS approaches",           "bbox": [120.70, 25.10, 122.40, 26.30] },
-  { "name": "gulf_of_finland",   "label": "Gulf of Finland (shadow-fleet corridor)", "bbox": [24.50, 59.20, 28.60, 60.30] },
-  { "name": "skagen_kattegat",   "label": "Skagen Anchorage (Kattegat)",             "bbox": [10.00, 57.30, 11.80, 58.30] },
-  { "name": "bosphorus_marmara", "label": "Bosphorus Approaches (Sea of Marmara)",   "bbox": [28.45, 40.72, 29.45, 40.98] },
-  { "name": "malta_hurds_bank",  "label": "Hurd Bank (Malta offshore STS)",          "bbox": [14.20, 35.60, 15.00, 36.20] }
+  { "name": "singapore_strait", "label": "Singapore Strait",
+    "ais_bbox": [103.55, 1.03, 104.10, 1.35], "sar_bbox": [103.55, 1.03, 104.10, 1.35], "mode": "fused" },
+  { "name": "gulf_of_finland",  "label": "Gulf of Finland (shadow-fleet corridor)",
+    "ais_bbox": [24.50, 59.20, 28.60, 60.30], "sar_bbox": [24.60, 59.55, 27.40, 60.05], "mode": "fused" },
+  { "name": "hormuz_strait",    "label": "Strait of Hormuz (TSS)",
+    "ais_bbox": [55.90, 26.15, 56.75, 26.85], "sar_bbox": [56.15, 26.35, 56.65, 26.70], "mode": "survey" }
 ]
 ```
 
-> Every ROI is probe-verified against live AISStream coverage — the narrative
-> *and* the receiver network have to line up, or fusion has nothing to correlate
-> against. See [ais-coverage.md](ais-coverage.md) for the verification data and
-> why regions like Hormuz, the Spratlys, and Kerch were dropped. Analysis in an
-> ROI whose AIS buffer is empty is refused (409) rather than producing all-dark
-> false positives.
+> **Why two boxes.** AISStream is terrestrial, so coverage follows coastlines and
+> the subscription box has to stay wide and coastal — it is free. The pixel fetch
+> is the only thing that costs PU, so its box stays small and on water. They used
+> to be one field, pulling in opposite directions.
+>
+> **`mode`.** `fused` regions have verified AIS, so an unmatched detection is
+> genuinely dark; analysis is refused (409) if the AIS buffer is empty rather than
+> producing all-dark false positives. `survey` regions (Hormuz, Kerch, Somalia…)
+> have no receiver coverage at all: fusion is skipped, `is_dark` stays `null`, and
+> detections mean "a vessel was here", never "a vessel is running dark". See
+> [ais-coverage.md](ais-coverage.md).
 
 ---
 
@@ -134,7 +142,7 @@ results and pass times via the read-only endpoints below.
 | 200  | Scene already processed — served from DB, 0 PU. |
 | 400  | Unknown ROI. |
 | 401  | Missing/wrong `X-Analysis-Key`. |
-| 409  | Analysis already running for this ROI, or no eligible scene (none in the last 3 days inside the AIS buffer — let AIS ingest a few hours first). |
+| 409  | Analysis already running for this ROI, or no eligible scene. Three causes: no pass in the last 3 days; none inside the AIS buffer (let AIS ingest a few hours first); or no pass imaging ≥85% of the ROI's `sar_bbox` — the swath only clipped it, and fetching would return a black chip. The message names which. All checked before any PU is spent. |
 | 503  | `ANALYSIS_API_KEY` unset, CDSE credentials unset, or model checkpoint missing (`backend/models/sar_ship.pt`, see `ml/README.md`). All checked **before** any PU is spent. |
 
 ```bash
@@ -164,22 +172,53 @@ Analyzed (and in-flight) SAR scenes for an ROI, newest first.
 | `status`          | `processing` / `processed` / `failed`              |
 | `processed_at`    | When analysis finished; `null` until then          |
 | `error`           | Failure reason when `status = failed`              |
-| `footprint`       | GeoJSON polygon of the imaged area                 |
-| `detection_count` | Total SAR detections                               |
-| `dark_count`      | Detections with no AIS match                       |
+| `footprint`       | GeoJSON polygon of the full Sentinel-1 swath — **not** the imaged area |
+| `imaged_bbox`     | `[min_lon, min_lat, max_lon, max_lat]` pixels were actually fetched for; `null` for pre-existing scenes |
+| `has_overview`    | Whether `overview.png` is available for this scene |
+| `detection_count` | SAR detections, **excluding** land-masked ones      |
+| `dark_count`      | Detections with no AIS match; always 0 in `survey` ROIs, where fusion never runs |
+| `land_count`      | Detections dropped by the coastline mask (rocks, breakwaters, shore structures) |
+
+> `footprint` and `imaged_bbox` are different rectangles. The footprint is the
+> ~250 km product swath; the chip only covers the ROI's `sar_bbox`. Drape imagery
+> on `imaged_bbox` — using the footprint will misregister it badly.
+
+---
+
+## `GET /api/scenes/{scene_id}/overview.png`
+
+The downsampled SAR chip the analysis ran on, as `image/png` (grayscale, ≤2048 px
+on the long edge, VV backscatter windowed −25…0 dB). Drape it over the scene's
+`imaged_bbox`: it is axis-aligned EPSG:4326 with row 0 at the north edge, so it
+maps directly onto a Leaflet `ImageOverlay` with no warping.
+
+Downsampling max-pools rather than averages — a ship is a handful of bright
+pixels on dark water, and averaging would erase the returns the detections are
+drawn on.
+
+| Status | Meaning |
+|--------|---------|
+| 200 | PNG body; `Cache-Control: public, max-age=86400, immutable` |
+| 404 | Unknown scene, or a scene analyzed before imagery retention existed |
 
 ---
 
 ## `GET /api/scenes/{scene_id}/detections`
 
 All detections for a scene, highest confidence first. 404 for unknown scenes.
+Land-masked detections are omitted by default.
+
+| Param          | Type | Default | Description |
+|----------------|------|---------|-------------|
+| `include_land` | bool | `false` | Also return detections inside the coastline mask. For auditing the mask — widening `LAND_MASK_BUFFER_M` eventually starts masking berthed ships, and this is how to see it. |
 
 | Field                | Description                                            |
 |----------------------|--------------------------------------------------------|
 | `lat`, `lon`         | Detection centroid                                     |
 | `confidence`         | Model confidence 0–1                                   |
 | `confidence_bucket`  | `high` (≥0.7) / `medium` (≥0.4) / `low`                |
-| `is_dark`            | `true` = no AIS match within 500 m / ±2 h; `null` = not yet fused |
+| `is_dark`            | `true` = no AIS match within 500 m / ±2 h; `null` = not fused (still processing, a `survey` ROI where no AIS exists to judge against, or land-masked) |
+| `on_land`            | Inside the coastline mask — not a vessel. Never fused, never counted. Only ever `true` when `include_land=true` |
 | `matched_mmsi`       | MMSI of the matched vessel; `null` when dark           |
 | `match_distance_m`   | Distance to the matched AIS position                   |
 | `match_time_delta_s` | Signed seconds between AIS fix and acquisition         |

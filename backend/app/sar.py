@@ -116,6 +116,31 @@ class SarChip:
     height: int
 
 
+OVERVIEW_MAX_PX = 2048
+
+
+def chip_overview_png(chip: SarChip, max_px: int = OVERVIEW_MAX_PX) -> bytes:
+    """Downsampled PNG of a chip, for map display over its `bbox` extent.
+
+    Max-pools rather than averaging. A ship is a handful of bright pixels on dark
+    water, and at these reduction factors averaging erases exactly the returns the
+    detections are drawn on. Pads (never crops) to a whole number of blocks so the
+    output still spans the full bbox and the overlay stays registered.
+    """
+    pixels = chip.pixels
+    factor = max(1, math.ceil(max(chip.width, chip.height) / max_px))
+    if factor > 1:
+        pad_h = -chip.height % factor
+        pad_w = -chip.width % factor
+        if pad_h or pad_w:
+            pixels = np.pad(pixels, ((0, pad_h), (0, pad_w)), mode="edge")
+        h, w = pixels.shape
+        pixels = pixels.reshape(h // factor, factor, w // factor, factor).max(axis=(1, 3))
+    buf = io.BytesIO()
+    Image.fromarray(pixels, mode="L").save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
 def _bbox_to_polygon_wkt(bbox: tuple[float, float, float, float]) -> str:
     """(min_lon, min_lat, max_lon, max_lat) → closed POLYGON WKT (lon lat order)."""
     min_lon, min_lat, max_lon, max_lat = bbox
@@ -243,6 +268,15 @@ PU_PIXELS_PER_UNIT = 512 * 512
 PU_BANDS_FACTOR = 1 / 3   # VV only; dataMask is excluded from the band count
 PU_ORTHO_FACTOR = 2.0     # processing.orthorectify = True
 
+PU_MONTHLY_BUDGET = 30_000
+
+# The Process API mosaics every acquisition in this window around the chosen
+# scene, so the imagery actually returned is the *union* of the slices in it —
+# not one slice's footprint. `pipeline.footprint_coverage` reuses these to
+# predict coverage before spending PU; they must stay in sync.
+PROCESS_WINDOW_BACK = timedelta(minutes=1)
+PROCESS_WINDOW_FWD = timedelta(minutes=10)
+
 
 def estimate_pu(grid: FetchGrid) -> float:
     return (
@@ -278,8 +312,8 @@ def build_process_request(
                     "type": "sentinel-1-grd",
                     "dataFilter": {
                         "timeRange": {
-                            "from": _iso_z(scene.sensed_at - timedelta(minutes=1)),
-                            "to": _iso_z(scene.sensed_at + timedelta(minutes=10)),
+                            "from": _iso_z(scene.sensed_at - PROCESS_WINDOW_BACK),
+                            "to": _iso_z(scene.sensed_at + PROCESS_WINDOW_FWD),
                         },
                         "acquisitionMode": "IW",
                         "polarization": "DV",

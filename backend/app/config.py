@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     detection_conf_threshold: float = Field(default=0.25, alias="DETECTION_CONF_THRESHOLD")
     fusion_max_distance_m: float = Field(default=500.0, alias="FUSION_MAX_DISTANCE_M")
     fusion_max_time_delta_hours: float = Field(default=2.0, alias="FUSION_MAX_TIME_DELTA_HOURS")
+    # Seaward metres added to the coastline when masking detections. 0 masks
+    # only what is strictly on land; widening it starts eating berthed and
+    # anchored vessels. Retuning is free — see landmask.py.
+    land_mask_buffer_m: float = Field(default=0.0, alias="LAND_MASK_BUFFER_M")
 
     @field_validator("cors_origins", mode="before")
     @classmethod

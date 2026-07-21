@@ -10,10 +10,16 @@ export type SourceHealth = {
 
 export type Health = { status: string; sources: Record<string, SourceHealth> };
 
+export type Bbox = [number, number, number, number]; // min_lon, min_lat, max_lon, max_lat
+
 export type Roi = {
   name: string;
   label: string;
-  bbox: [number, number, number, number]; // min_lon, min_lat, max_lon, max_lat
+  ais_bbox: Bbox; // subscribed on AISStream — free, so kept wide and coastal
+  sar_bbox: Bbox; // imaged and clipped to — costs PU, so kept small and on water
+  // "survey" regions have no AIS coverage: detections there are observed
+  // vessels, never "dark".
+  mode: "fused" | "survey";
 };
 
 export type Vessel = {
@@ -54,8 +60,11 @@ export type Scene = {
   processed_at: string | null;
   error: string | null;
   footprint: Footprint;
-  detection_count: number;
+  imaged_bbox: Bbox | null; // the rectangle pixels were fetched for
+  has_overview: boolean;
+  detection_count: number; // excludes land-masked hits
   dark_count: number;
+  land_count: number;
 };
 
 export type Detection = {
@@ -65,6 +74,9 @@ export type Detection = {
   confidence: number;
   confidence_bucket: "high" | "medium" | "low";
   is_dark: boolean | null;
+  // Fell inside the coastline mask — a rock or shore structure, not a vessel.
+  // Only ever present when the request asked for masked hits.
+  on_land: boolean;
   matched_mmsi: number | null;
   match_distance_m: number | null;
   match_time_delta_s: number | null;

@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
-from app import pipeline, sources
+from app import landmask, pipeline, sources
 from app.config import get_settings
 from app.database import Base, engine, get_session
 from app.detect import DetectorUnavailable, load_detector
@@ -31,6 +31,9 @@ logging.basicConfig(
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # create_all cannot add a column to an existing table and there is no
+        # Alembic — this backfills `on_land` on databases that predate it.
+        await landmask.apply_schema(conn)
     sources.mark_disconnected(pipeline.SOURCE)  # list the SAR source in /api/health from boot
     stop = asyncio.Event()
     tasks = [
@@ -64,7 +67,13 @@ async def health() -> dict:
 @app.get("/api/rois")
 async def list_rois() -> list[dict]:
     return [
-        {"name": roi.name, "label": roi.label, "bbox": list(roi.bbox)}
+        {
+            "name": roi.name,
+            "label": roi.label,
+            "ais_bbox": list(roi.ais_bbox),
+            "sar_bbox": list(roi.sar_bbox),
+            "mode": roi.mode,
+        }
         for roi in ROIS.values()
     ]
 
@@ -91,7 +100,7 @@ async def vessel_count(
         roi_obj = get_roi(roi)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    min_lon, min_lat, max_lon, max_lat = roi_obj.bbox
+    min_lon, min_lat, max_lon, max_lat = roi_obj.ais_bbox
     row = (
         await session.execute(
             VESSEL_COUNT_QUERY,
@@ -139,7 +148,7 @@ async def list_vessels(
     when = at or datetime.now(tz=timezone.utc)
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
-    min_lon, min_lat, max_lon, max_lat = roi_obj.bbox
+    min_lon, min_lat, max_lon, max_lat = roi_obj.ais_bbox
     rows = (
         await session.execute(
             VESSELS_QUERY,
@@ -243,8 +252,11 @@ SCENES_QUERY = text(
     """
     SELECT s.id, s.name, s.roi, s.sensed_at, s.platform, s.status, s.processed_at, s.error,
            ST_AsGeoJSON(s.footprint) AS footprint,
-           count(d.id) AS detection_count,
-           count(d.id) FILTER (WHERE d.is_dark) AS dark_count
+           s.imaged_bbox,
+           s.overview_png IS NOT NULL AS has_overview,
+           count(d.id) FILTER (WHERE NOT d.on_land) AS detection_count,
+           count(d.id) FILTER (WHERE d.is_dark) AS dark_count,
+           count(d.id) FILTER (WHERE d.on_land) AS land_count
     FROM sar_scenes s
     LEFT JOIN sar_detections d ON d.scene_id = s.id
     WHERE s.roi = :roi
@@ -273,12 +285,13 @@ DETECTIONS_QUERY = text(
     SELECT d.id,
            ST_Y(d.location::geometry) AS lat,
            ST_X(d.location::geometry) AS lon,
-           d.confidence, d.confidence_bucket, d.is_dark,
+           d.confidence, d.confidence_bucket, d.is_dark, d.on_land,
            d.matched_mmsi, d.match_distance_m, d.match_time_delta_s,
            m.ship_name, m.ship_type, m.callsign
     FROM sar_detections d
     LEFT JOIN ship_metadata m ON m.mmsi = d.matched_mmsi
     WHERE d.scene_id = :scene_id
+      AND (:include_land OR NOT d.on_land)
     ORDER BY d.confidence DESC
     """
 )
@@ -288,6 +301,11 @@ DETECTIONS_QUERY = text(
 async def scene_detections(
     scene_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
+    # Land-masked hits are rocks and shore structures, not vessels. Kept
+    # queryable so the buffer can be audited without a DB shell — widening
+    # LAND_MASK_BUFFER_M eventually starts eating berthed ships, and this is
+    # how you see it happen.
+    include_land: bool = Query(default=False),
 ) -> list[dict]:
     exists = (
         await session.execute(
@@ -297,9 +315,40 @@ async def scene_detections(
     if not exists:
         raise HTTPException(status_code=404, detail=f"unknown scene {scene_id!r}")
     rows = (
-        await session.execute(DETECTIONS_QUERY, {"scene_id": scene_id})
+        await session.execute(
+            DETECTIONS_QUERY, {"scene_id": scene_id, "include_land": include_land}
+        )
     ).mappings().all()
     return [dict(r) for r in rows]
+
+
+@app.get(
+    "/api/scenes/{scene_id}/overview.png",
+    summary="Downsampled SAR chip the analysis ran on; drape over the scene's imaged_bbox",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}}},
+)
+async def scene_overview(
+    scene_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    row = (
+        await session.execute(
+            text("SELECT overview_png FROM sar_scenes WHERE id = :id"), {"id": scene_id}
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown scene {scene_id!r}")
+    if row[0] is None:
+        raise HTTPException(
+            status_code=404, detail=f"no imagery stored for scene {scene_id!r}"
+        )
+    # A scene's imagery never changes once analyzed.
+    return Response(
+        content=row[0],
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
 
 
 @app.get("/api/analysis/next-pass", summary="Latest and expected Sentinel-1 pass times for an ROI (free)")

@@ -4,16 +4,22 @@ Network paths (token fetch, tile fetch, catalog search) are intentionally out of
 scope — they belong in a separate integration suite.
 """
 
+import io
 from datetime import datetime, timezone
+from math import ceil
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from app.sar import (
     DB_MIN,
     EVALSCRIPT,
     MAX_TILE_PX,
+    SarChip,
     SarScene,
     build_process_request,
+    chip_overview_png,
     estimate_pu,
     plan_fetch_grid,
 )
@@ -143,3 +149,38 @@ class TestBuildProcessRequest:
 def body_uses_evalscript() -> bool:
     body = build_process_request(make_scene(), TEST_BBOX, 100, 100)
     return body["evalscript"] == EVALSCRIPT
+
+
+class TestChipOverviewPng:
+    @staticmethod
+    def _chip(pixels):
+        return SarChip(
+            pixels=pixels, bbox=TEST_BBOX, width=pixels.shape[1], height=pixels.shape[0]
+        )
+
+    def test_bounds_long_edge_to_max_px(self):
+        chip = self._chip(np.zeros((1000, 5000), dtype=np.uint8))
+        image = Image.open(io.BytesIO(chip_overview_png(chip, max_px=1000)))
+        assert max(image.size) <= 1000
+
+    def test_small_chip_is_left_alone(self):
+        chip = self._chip(np.zeros((40, 60), dtype=np.uint8))
+        image = Image.open(io.BytesIO(chip_overview_png(chip, max_px=2048)))
+        assert image.size == (60, 40)
+
+    def test_isolated_bright_pixel_survives_downsampling(self):
+        """A ship is a few bright pixels on dark water; averaging would erase it."""
+        pixels = np.zeros((800, 800), dtype=np.uint8)
+        pixels[417, 233] = 255
+        chip = self._chip(pixels)
+        image = Image.open(io.BytesIO(chip_overview_png(chip, max_px=100)))
+        assert np.asarray(image).max() == 255
+
+    def test_pads_rather_than_crops_so_extent_is_preserved(self):
+        # 805 is not a multiple of the reduction factor (9); cropping the
+        # remainder would shrink the covered area and misregister the overlay
+        # against imaged_bbox.
+        chip = self._chip(np.zeros((805, 805), dtype=np.uint8))
+        image = Image.open(io.BytesIO(chip_overview_png(chip, max_px=100)))
+        assert 805 % 9 != 0, "pick a size that actually exercises padding"
+        assert image.size == (ceil(805 / 9), ceil(805 / 9))

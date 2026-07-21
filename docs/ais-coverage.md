@@ -36,19 +36,91 @@ renders a cached fleet, so zoom in before trusting it).
 | Malta / Hurd Bank | **3–5** | ✅ ROI `malta_hurds_bank` (thin but alive; strongest dark-STS narrative) |
 | Cyprus east (Limassol) | 12 | viable, not selected |
 | Rotterdam | dense | viable, weak dark-vessel narrative |
-| Fujairah / Gulf of Oman | 0 | ❌ dropped (was `strait_of_hormuz`) |
+| Fujairah / Gulf of Oman | 0 | ↻ now `fujairah_anchorage` (survey mode) |
 | Taiwan Strait mid-channel | 0–1 | ❌ dropped (was `taiwan_strait`) |
 | Spratly Islands | 0 | ❌ dropped (open ocean — terrestrial AIS will never cover it) |
-| NE Black Sea (Kerch) | 0 | ❌ dropped |
+| NE Black Sea (Kerch) | 0 | ↻ now `kerch_strait` (survey mode) |
 | UAE Gulf side (Dubai) | 0 | ❌ (the aihare map shows cached vessels here; raw feed is silent) |
 | Vladivostok / Peter the Great Gulf | 0 | ❌ |
 | Laconian Gulf, Chios, Kaohsiung | 0 | ❌ |
 
-**Boxes must not be shrunk without re-probing.** A first attempt trimmed each
+**AIS boxes must not be shrunk without re-probing.** A first attempt trimmed each
 box toward open water (land clutter is bad for SAR detection) and coverage
 collapsed — north_taiwan 24→1, Skagen 82→17, Malta 5→0 — because both the
-receivers and the traffic lanes hug the coasts. The registry keeps the exact
-boxes that probed hot and accepts coastal land in the SAR chips as the cost.
+receivers and the traffic lanes hug the coasts.
+
+This is why an ROI carries **two** boxes (`rois.py`). `ais_bbox` is exactly the
+box that probed hot above; it is free, so it stays wide and coastal. `sar_bbox`
+is a smaller water-centered subset used for the pixel fetch, detection, and
+fusion clip — it is what costs PU, and shrinking it cut the registry from
+~51,800 to 23,713 PU/month. The two constraints stopped fighting once they
+stopped sharing a field.
+
+## Fused vs survey regions
+
+The 409 guard (below) makes an AIS-silent region unanalyzable, which would rule
+out exactly the places vessels go dark. Regions therefore declare a `mode`:
+
+| | `fused` | `survey` |
+|---|---|---|
+| AIS coverage | verified live | none |
+| Fusion | `ST_DWithin` match | skipped |
+| `is_dark` | true / false | **NULL** |
+| UI | red dark / green matched | amber "observed vessel" + banner |
+| Claim | "this vessel is running dark" | "this many vessels were here at 06:12Z" |
+
+Survey regions still subscribe an `ais_bbox`, because AIS costs nothing and a
+region should be promoted on evidence rather than assumption. `eopl_tompok_utara`
+is the likeliest candidate — its box reaches west toward the Singapore receivers
+that feed `singapore_strait`.
+
+A survey region is not a weaker fused region. When ~57% of Strait of Hormuz
+transits ran dark through 2026, a per-pass count of what radar actually sees is
+the product; there is no AIS baseline to subtract, and pretending otherwise
+would be the dishonest version.
+
+## SAR coverage constrains regions too (measured 2026-07-21)
+
+AIS is not the only thing that can be absent, and the SAR failure mode is
+quieter: the catalog happily reports a pass whose swath merely clips the corner
+of the box. Fetching it costs full PU and returns an all-black chip with zero
+detections. The first live Hormuz analysis did exactly this — **0.1% of the
+`sar_bbox` covered, 2 KB of black PNG, 49 PU spent**.
+
+So "a pass exists" is not "the box is imaged". Two numbers per region:
+
+- **passes** — acquisitions whose swath touches `sar_bbox` at all.
+- **usable passes** — those whose mosaicked footprint covers ≥ 85% of it.
+
+Only usable passes are budgeted for, and `find_target_scene` refuses the rest
+before spending. Roughly half of all passes fail the check even for well-placed
+boxes (Hormuz 10/20, Singapore 6/9).
+
+Coverage is the union of slices in the Process API's `[-1 min, +10 min]`
+mosaicking window, not the anchor slice alone — `PROCESS_WINDOW_BACK`/`FWD` in
+`sar.py` are shared with `pipeline.footprint_coverage` so the two cannot drift.
+
+**Placement beats size.** Moving a box inside a real swath track is worth far
+more than shrinking it:
+
+| Region | Before | After | PU/pass |
+|---|---|---|---|
+| `north_taiwan` | 3/11 usable, 67% median | 11/11, 100% | 179 → 65 |
+| `fujairah_anchorage` | 8/20, 32% | 14/20, 100% | 51 → 18 |
+| `somali_coast` | 4/13, 26% | 9/13, 93% | 103 → 37 |
+| `gulf_of_finland` | 14/41, 55% | 19/33, 85% | 222 → 107 |
+
+**Some regions cannot be fixed.** Sentinel-1 runs IW over land and coastal water
+only:
+
+- A Somali Basin box (89×89 km, open ocean) returned **0 passes in 30 days**.
+- `gulf_of_aden_irtc` covered a **median 3%** with 3/11 usable, and no resize
+  helped — the IRTC corridor is open water. Dropped 2026-07-21. The nearest
+  workable placement was the Berbera coast, which is a different subject.
+
+Price any candidate with `backend/scripts/probe_regions.py` (free, 0 PU) before
+adding it. It reuses the pipeline's own coverage query, flags `passes_per_month`
+values that have drifted, and warns on regions with too few usable passes.
 
 ## Why each selected ROI is a dark-vessel story
 

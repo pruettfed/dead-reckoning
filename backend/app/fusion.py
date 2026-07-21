@@ -2,11 +2,18 @@
 
 A SAR detection is flagged "dark" if no AIS position matches within
 FUSION_MAX_DISTANCE_M / ±FUSION_MAX_TIME_DELTA_HOURS of the scene's acquisition
-timestamp. Two rules keep this honest:
+timestamp. Three rules keep this honest:
   - Clip conclusions to ROI ∩ image-footprint at the single acquisition
     timestamp; a detection outside the imaged footprint is *unobserved*, not dark.
   - Never mosaic passes for the correlation — different passes have different
     times and the vessels have moved. Mosaic only as a visual backdrop.
+  - Skip detections flagged `on_land` (see landmask.py). A rock broadcasts no
+    AIS, so fusing one would return the strongest possible dark signal for the
+    one thing that certainly is not a vessel.
+
+Survey ROIs (no AIS receiver coverage at all) skip the match entirely and keep
+is_dark = NULL. There, an unmatched detection means "no ground truth exists",
+not "dark" — running the match would flag every vessel in the region.
 """
 
 from __future__ import annotations
@@ -73,6 +80,7 @@ FUSE_QUERY = text(
             LIMIT 1
         ) a ON true
         WHERE d.scene_id = :scene_id
+          AND NOT d.on_land
     )
     UPDATE sar_detections d
     SET matched_mmsi = n.mmsi,
@@ -89,6 +97,7 @@ FUSION_COUNTS = text(
     SELECT count(*) AS total, count(*) FILTER (WHERE is_dark) AS dark
     FROM sar_detections
     WHERE scene_id = :scene_id
+      AND NOT on_land
     """
 )
 
@@ -125,18 +134,24 @@ async def fuse_scene(
     *,
     max_distance_m: float,
     window_hours: float,
+    fused: bool = True,
 ) -> dict:
-    """Clip to footprint, match AIS, flag dark. Returns {"total": n, "dark": n}."""
+    """Clip to footprint, and for fused ROIs match AIS and flag dark.
+
+    Returns {"total": n, "dark": n}, with `dark` None for survey ROIs — there is
+    no AIS to correlate against, so the count would be meaningless rather than zero.
+    """
     params = {"scene_id": scene_id}
     await session.execute(CLIP_TO_FOOTPRINT, params)
-    await session.execute(
-        FUSE_QUERY,
-        {
-            "scene_id": scene_id,
-            "sensed_at": sensed_at,
-            "window_s": window_hours * 3600,
-            "max_distance_m": max_distance_m,
-        },
-    )
+    if fused:
+        await session.execute(
+            FUSE_QUERY,
+            {
+                "scene_id": scene_id,
+                "sensed_at": sensed_at,
+                "window_s": window_hours * 3600,
+                "max_distance_m": max_distance_m,
+            },
+        )
     row = (await session.execute(FUSION_COUNTS, params)).mappings().one()
-    return {"total": row["total"], "dark": row["dark"]}
+    return {"total": row["total"], "dark": row["dark"] if fused else None}

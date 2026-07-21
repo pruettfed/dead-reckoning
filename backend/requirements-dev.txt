@@ -1,3 +1,4 @@
 -r requirements.txt
 pytest
 pytest-asyncio
+pyshp  # scripts/load_land.py — pure-Python shapefile reader, no GDAL
