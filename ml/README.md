@@ -62,7 +62,7 @@ isolated and unit-tested; the runbook stays *download → calibrate → chip →
 
 ```python
 !pip -q install ultralytics rasterio huggingface_hub
-!git clone https://github.com/pruettfed/dead-reckoning.git
+!git clone https://{user}:{token}@github.com/{user}/dead-reckoning.git
 %cd dead-reckoning
 ```
 
