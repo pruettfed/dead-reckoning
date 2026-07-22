@@ -54,6 +54,11 @@ MAX_TILE_PX = 2400  # Process API caps output at 2500 px per side
 DB_MIN = -25.0
 DB_MAX = 0.0
 
+# Sentinel Hub speckle filter applied to linear σ⁰ before the evalscript sees it
+# (e.g. {"type": "LEE", "windowSizeX": 3, "windowSizeY": 3}). None = off, the
+# production default; the bench sweeps candidates through the same declared seam.
+SPECKLE_FILTER: dict | None = None
+
 EVALSCRIPT = string.Template(
     """//VERSION=3
 function setup() {
@@ -295,12 +300,26 @@ def build_process_request(
     bbox: tuple[float, float, float, float],
     width: int,
     height: int,
+    *,
+    evalscript: str = EVALSCRIPT,
+    speckle_filter: dict | None = SPECKLE_FILTER,
 ) -> dict:
     """Process API body for one tile of `scene` clipped to `bbox`.
 
     The timeRange brackets this scene's acquisition only — the correlation is
     single-snapshot, so passes are never mosaicked.
+
+    `evalscript` and `speckle_filter` default to the production pair (`EVALSCRIPT`,
+    `SPECKLE_FILTER`) so the bench can reuse this tiling seam without duplicating it.
+    `speckle_filter` runs on linear σ⁰ before the evalscript and is only emitted
+    when non-None.
     """
+    processing: dict = {
+        "orthorectify": True,
+        "backCoeff": "SIGMA0_ELLIPSOID",
+    }
+    if speckle_filter is not None:
+        processing["speckleFilter"] = speckle_filter
     return {
         "input": {
             "bounds": {
@@ -320,10 +339,7 @@ def build_process_request(
                         "resolution": "HIGH",
                         "mosaickingOrder": "mostRecent",
                     },
-                    "processing": {
-                        "orthorectify": True,
-                        "backCoeff": "SIGMA0_ELLIPSOID",
-                    },
+                    "processing": processing,
                 }
             ],
         },
@@ -334,7 +350,7 @@ def build_process_request(
                 {"identifier": "default", "format": {"type": "image/png"}}
             ],
         },
-        "evalscript": EVALSCRIPT,
+        "evalscript": evalscript,
     }
 
 
@@ -367,8 +383,14 @@ async def fetch_scene_pixels(
     bbox: tuple[float, float, float, float],
     *,
     client: httpx.AsyncClient | None = None,
+    evalscript: str = EVALSCRIPT,
+    speckle_filter: dict | None = SPECKLE_FILTER,
 ) -> SarChip:
-    """Fetch `bbox` from `scene` as one stitched uint8 chip. Spends PU (see estimate_pu)."""
+    """Fetch `bbox` from `scene` as one stitched uint8 chip. Spends PU (see estimate_pu).
+
+    `evalscript` / `speckle_filter` pass through to `build_process_request` per tile,
+    defaulting to the production pair; the bench overrides them at 0 change to prod.
+    """
     grid = plan_fetch_grid(bbox)
     log.info(
         "fetching %s: %dx%d px in %d tiles (~%.0f PU)",
@@ -384,7 +406,10 @@ async def fetch_scene_pixels(
         headers = {"Authorization": f"Bearer {token}"}
 
         async def fetch_tile(tile: FetchTile) -> None:
-            body = build_process_request(scene, tile.bbox, tile.width, tile.height)
+            body = build_process_request(
+                scene, tile.bbox, tile.width, tile.height,
+                evalscript=evalscript, speckle_filter=speckle_filter,
+            )
             async with semaphore:
                 resp = await client.post(SH_PROCESS_URL, json=body, headers=headers)
                 resp.raise_for_status()

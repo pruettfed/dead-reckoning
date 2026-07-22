@@ -145,6 +145,23 @@ class TestBuildProcessRequest:
         assert str(DB_MIN) in EVALSCRIPT
         assert body_uses_evalscript()
 
+    def test_no_speckle_filter_by_default(self):
+        body = build_process_request(make_scene(), TEST_BBOX, 100, 100)
+        assert "speckleFilter" not in body["input"]["data"][0]["processing"]
+
+    def test_speckle_filter_injected_when_given(self):
+        speckle = {"type": "LEE", "windowSizeX": 3, "windowSizeY": 3}
+        body = build_process_request(
+            make_scene(), TEST_BBOX, 100, 100, speckle_filter=speckle
+        )
+        assert body["input"]["data"][0]["processing"]["speckleFilter"] == speckle
+
+    def test_evalscript_override_passthrough(self):
+        body = build_process_request(
+            make_scene(), TEST_BBOX, 100, 100, evalscript="//custom"
+        )
+        assert body["evalscript"] == "//custom"
+
 
 def body_uses_evalscript() -> bool:
     body = build_process_request(make_scene(), TEST_BBOX, 100, 100)
