@@ -92,6 +92,15 @@ class TestExpandLut:
         lut = safe_to_db.expand_lut(lines, pixels, sigmas, height=1, width=5)
         assert lut[0].tolist() == pytest.approx([10.0, 15.0, 20.0, 25.0, 30.0])
 
+    def test_blocked_rows_match_the_full_grid(self):
+        """convert() interpolates one row-stripe at a time to stay within RAM; a
+        stripe must equal the same rows of the full grid, or blocks would seam."""
+        lines, pixels, sigmas = safe_to_db.parse_calibration_lut(CALIB_XML)
+        full = safe_to_db.expand_lut(lines, pixels, sigmas, height=5, width=5)
+        columns = safe_to_db.column_lut(lines, pixels, sigmas, width=5)
+        stripe = safe_to_db.row_lut(lines, columns, np.arange(2, 4))
+        assert stripe == pytest.approx(full[2:4])
+
 
 class TestCalibrateToDb:
     def test_matches_the_production_formula(self):

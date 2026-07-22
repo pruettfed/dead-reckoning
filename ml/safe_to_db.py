@@ -81,28 +81,45 @@ def parse_calibration_lut(xml_bytes: bytes) -> tuple[np.ndarray, list[np.ndarray
     )
 
 
-def expand_lut(
-    lines: np.ndarray, pixels: list[np.ndarray], sigmas: list[np.ndarray], height: int, width: int
+def column_lut(
+    lines: np.ndarray, pixels: list[np.ndarray], sigmas: list[np.ndarray], width: int
 ) -> np.ndarray:
-    """Bilinearly interpolate the coarse sigmaNought grid to full (height, width).
+    """(n_vectors, width) float32: each vector's sigmaNought across the full width.
 
-    Along columns: each vector's samples are interpolated across the full width.
-    Along rows: the per-vector rows are blended by image line. Endpoints are held
-    flat beyond the sampled extent (np.interp / clipped bracket), which is correct —
-    the LUT spans the imaged area and nodata borders never enter calibration.
+    Computed once per scene and reused for every row block — it is tiny (a dozen
+    rows) next to the full raster, which is what keeps calibration streamable.
     """
     full_cols = np.arange(width, dtype=np.float64)
-    per_vector = np.stack([np.interp(full_cols, pixels[v], sigmas[v]) for v in range(len(lines))])
+    return np.stack(
+        [np.interp(full_cols, pixels[v], sigmas[v]) for v in range(len(lines))]
+    ).astype(np.float32)
 
+
+def row_lut(lines: np.ndarray, columns: np.ndarray, rows: np.ndarray) -> np.ndarray:
+    """(len(rows), width) float32: blend the per-vector column LUTs by image line.
+
+    Endpoints hold flat beyond the sampled extent (clipped bracket) — the LUT spans
+    the imaged area and nodata borders never enter calibration.
+    """
+    rows = np.asarray(rows, dtype=np.float64)
     if len(lines) == 1:
-        return np.broadcast_to(per_vector[0], (height, width)).astype(np.float64).copy()
-
-    rows = np.arange(height, dtype=np.float64)
+        return np.broadcast_to(columns[0], (len(rows), columns.shape[1])).copy()
     upper = np.clip(np.searchsorted(lines, rows), 1, len(lines) - 1)
     lower = upper - 1
     span = lines[upper] - lines[lower]
-    weight = ((rows - lines[lower]) / span)[:, None]
-    return per_vector[lower] * (1.0 - weight) + per_vector[upper] * weight
+    weight = ((rows - lines[lower]) / span)[:, None].astype(np.float32)
+    return columns[lower] * (1.0 - weight) + columns[upper] * weight
+
+
+def expand_lut(
+    lines: np.ndarray, pixels: list[np.ndarray], sigmas: list[np.ndarray], height: int, width: int
+) -> np.ndarray:
+    """Full-resolution sigmaNought grid — the column then row interpolation composed.
+
+    Convenient for tests; convert() calls the two pieces per block so the full grid
+    is never materialised (a 26000x16000 float grid is multiple GB).
+    """
+    return row_lut(lines, column_lut(lines, pixels, sigmas, width), np.arange(height))
 
 
 def calibrate_to_db(dn: np.ndarray, sigma_lut: np.ndarray) -> np.ndarray:
@@ -164,22 +181,32 @@ def scene_id_for(product_identifier: str, labels_csv: Path) -> str:
     raise SystemExit(f"{stem} matched no GRD_product_identifier in {labels_csv}")
 
 
-def convert(safe: Path, out_dir: Path, scene_id: str) -> Path:
-    import rasterio
+# Calibrate a stripe at a time. A full scene as float32 is several GB; on a ~12 GB
+# Colab box, materialising the whole dB raster plus the LUT OOM-kills the process.
+BLOCK_ROWS = 2048  # a multiple of the 512 output tile height, so stripes write in order
 
-    dn, calib_bytes = _read_safe(safe)
+
+def convert(safe: Path, out_dir: Path, scene_id: str, block_rows: int = BLOCK_ROWS) -> Path:
+    import rasterio
+    from rasterio.windows import Window
+
+    dn, calib_bytes = _read_safe(safe)  # uint16, ~0.8 GB — read whole, calibrate blocked
     lines, pixels, sigmas = parse_calibration_lut(calib_bytes)
-    sigma_lut = expand_lut(lines, pixels, sigmas, dn.shape[0], dn.shape[1])
-    db = calibrate_to_db(dn, sigma_lut)
+    height, width = dn.shape
+    columns = column_lut(lines, pixels, sigmas, width)
 
     scene_dir = out_dir / scene_id
     scene_dir.mkdir(parents=True, exist_ok=True)
     out_path = scene_dir / "VV_dB.tif"
     with rasterio.open(
-        out_path, "w", driver="GTiff", height=db.shape[0], width=db.shape[1],
-        count=1, dtype="float32", nodata=float("nan"), compress="deflate", predictor=3,
+        out_path, "w", driver="GTiff", height=height, width=width, count=1,
+        dtype="float32", nodata=float("nan"), compress="deflate", predictor=3,
+        tiled=True, blockxsize=512, blockysize=512, BIGTIFF="IF_SAFER",
     ) as dst:
-        dst.write(db, 1)
+        for r0 in range(0, height, block_rows):
+            r1 = min(r0 + block_rows, height)
+            lut = row_lut(lines, columns, np.arange(r0, r1))
+            dst.write(calibrate_to_db(dn[r0:r1], lut), 1, window=Window(0, r0, width, r1 - r0))
     return out_path
 
 

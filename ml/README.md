@@ -84,26 +84,38 @@ challenge closed in 2021; the data stays free) and, from the download-links page
 > in 2b.) The xView3 `train.csv`/`validation.csv` use a *different* grid and won't align.
 
 **2b. Imagery from SARFish (permanent, no expiring links).** SARFish hosts each GRD scene
-as a `.SAFE.zip` on Hugging Face; `huggingface_hub` pulls just the ones you name. Pick scene
-IDs from your label CSV. **Start with ~10.**
+as a `.SAFE.zip` on Hugging Face; `huggingface_hub` pulls just the ones you name. **Start
+with ~10–15.** The full train split is 554 scenes — you don't want all of it up front, but
+grab a *spread* rather than the first N in file order, since scene diversity (regions, sea
+states, vessel mixes) generalises to the scattered production ROIs better than raw count.
 
 ```python
 import shutil, subprocess
 from pathlib import Path
 from huggingface_hub import hf_hub_download
+import numpy as np
 import pandas as pd
 
 REPO = "ConnorLuckettDSTG/SARFish"
 PARTITION = "train"            # match the label CSV you downloaded (train / validation)
-N_SCENES = 10
+N_SCENES = 12
 root = Path("/content/xview3"); root.mkdir(exist_ok=True)
 safe_dir = root / "safe"; safe_dir.mkdir(exist_ok=True)
 
 labels = pd.read_csv(root / "labels.csv")
-products = labels["GRD_product_identifier"].dropna().unique()[:N_SCENES]
-print(f"{len(products)} products to fetch")
+all_products = labels["GRD_product_identifier"].dropna().unique()
+# One fixed shuffle, first N. The shuffle breaks any region/time clustering in file
+# order; the fixed seed makes a larger N a strict superset, so scaling up later re-uses
+# the VV_dB.tif you already built and only downloads the new scenes.
+order = np.random.RandomState(0).permutation(len(all_products))
+products = all_products[sorted(order[:N_SCENES])]
+prod_to_scene = dict(zip(labels["GRD_product_identifier"], labels["scene_id"]))
+print(f"{len(products)} of {len(all_products)} products to fetch")
 
 for i, product in enumerate(products, 1):
+    scene_id = prod_to_scene.get(product, product)
+    if (root / str(scene_id) / "VV_dB.tif").exists():
+        print(f"[{i}/{len(products)}] already built — {scene_id}"); continue
     free = shutil.disk_usage("/content").free / 2**30
     print(f"[{i}/{len(products)}] {free:.0f} GB free — {product}")
     if free < 8:
