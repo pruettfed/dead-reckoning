@@ -22,8 +22,8 @@ from app.sar import SarChip
 TILE_SIZE = 800  # HRSID trains at 800x800
 TILE_OVERLAP = 160
 
-CONF_HIGH = 0.7
-CONF_MEDIUM = 0.4
+CONF_HIGH = 0.6
+CONF_MEDIUM = 0.25
 
 PixelDetection = tuple[float, float, float, float, float]  # x1, y1, x2, y2, conf
 
