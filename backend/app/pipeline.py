@@ -162,10 +162,13 @@ MIN_AIS_IN_ROI = text(
 )
 
 
-async def find_target_scene(roi: ROI) -> tuple[SarScene, str | None]:
+async def find_target_scene(roi: ROI, *, require_ais: bool = True) -> tuple[SarScene, str | None]:
     """Newest analyzable scene for the ROI and its current DB status (None if new).
 
     Free (catalog + DB only). Raises NoEligibleScene when nothing qualifies.
+
+    require_ais=True (production) refuses a fused-ROI scene with no AIS to bracket it;
+    False takes the newest covering pass regardless (for offline detector benchmarking).
     """
     settings = get_settings()
     now = datetime.now(tz=timezone.utc)
@@ -175,9 +178,9 @@ async def find_target_scene(roi: ROI) -> tuple[SarScene, str | None]:
             f"no Sentinel-1 scene over {roi.name!r} in the last {SEARCH_WINDOW_DAYS} days"
         )
     async with SessionLocal() as session:
-        if roi.mode == "survey":
-            # No AIS to bracket the scene against, and none expected. Detections
-            # stay unfused (is_dark NULL), so every pass is a candidate.
+        if roi.mode == "survey" or not require_ais:
+            # No AIS to bracket the scene against (survey ROI, or benchmark bypass).
+            # Detections stay unfused (is_dark NULL), so every pass is a candidate.
             candidates = sorted(scenes, key=lambda s: s.sensed_at, reverse=True)
         else:
             min_lon, min_lat, max_lon, max_lat = roi.ais_bbox

@@ -1,30 +1,18 @@
 """Score checkpoints / windows / speckle filters on cached chips. Spends 0 PU.
 
-Every comparison reads a chip fetched once by scripts/fetch_chip.py and its AIS
-sidecar; nothing here touches the Process API or sar_detections. The chip was
-bought at the wide calibration window (-35, +5 dB), so any narrower candidate
-window is an exact affine restretch of the stored uint8 (`restretch`), and LEE is
-approximated in the linear domain it actually runs in (`lee_filter`).
-
-`render()` is the ONLY path to pixels — there is no raw mode — so a checkpoint is
-never accidentally scored against the un-restretched calibration render and called
-worse when it was simply never restretched to the production window. It reuses the
-production detector verbatim (`app.detect.load_detector` + `run_detection`), so the
-real tiling, 3-channel replication, imgsz=800 and NMS are exercised, not reimplemented.
-
-Scoring is a read-only PostGIS query against the sidecar's frozen AIS snapshot
-(`ST_DWithin` at fusion_max_distance_m). The first thing printed per run is a
-confidence histogram at a low threshold — a fat pile below 0.25 sitting on real AIS
-means the fix is a threshold, not a retrain (see the plan's Step 3).
-
-Needs the stack up (PostGIS). No CDSE creds, no PU.
+Reads a chip fetched once by fetch_chip.py plus its AIS sidecar. The chip was bought at
+the wide window (-35, +5 dB), so `render()` restretches it to any narrower candidate and
+runs the production detector verbatim (load_detector + run_detection) — real tiling, NMS,
+imgsz=800. Scores detections against the frozen AIS snapshot with a read-only ST_DWithin
+query; also prints a low-threshold confidence histogram (a fat pile below 0.25 on real AIS
+means the fix is a threshold, not a retrain). Needs PostGIS up; no CDSE creds, no PU.
 
     cd backend
     DATABASE_URL=postgresql+asyncpg://dvd:dvd@localhost:5432/dvd \\
         .venv/bin/python scripts/bench_detector.py \\
             --chip data/chips/singapore_strait_20260715T113045.npy \\
-            --weights models/sar_ship.pt models/lsssdd.pt \\
-            --window -25,0 --window -30,-5 --lee 0 --lee 3 --conf 0.05
+            --weights models/sar_ship.pt models/xview3_s.pt \\
+            --conf 0.05 --save-images data/chips/annotated
 """
 
 from __future__ import annotations
@@ -32,7 +20,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # import app.* when run as a script
 
 import numpy as np
 from sqlalchemy import text
@@ -42,9 +33,31 @@ from app.detect import load_detector, run_detection
 from app.landmask import land_loaded
 from app.sar import SarChip
 
-# Confidence bins for the sub-threshold histogram (Step 3): the 0.10-0.25 span is
-# where a compressed-but-present distribution would hide.
+# Sub-threshold histogram bins: the 0.10-0.25 span is where a compressed-but-present
+# confidence distribution hides.
 HIST_EDGES = (0.0, 0.10, 0.15, 0.20, 0.25, 0.40, 0.70, 1.01)
+
+# Marker colours by confidence bucket, for --save-images.
+BUCKET_COLOR = {"high": (0, 255, 0), "medium": (255, 210, 0), "low": (255, 70, 70)}
+
+
+def save_annotated(arr: np.ndarray, dets, meta: dict, out_path: Path) -> None:
+    """Write the rendered chip with a confidence-coloured ring on each detection
+    (lon/lat centroid → pixel via the chip's linear mapping). Full resolution."""
+    from PIL import Image, ImageDraw
+
+    min_lon, min_lat, max_lon, max_lat = meta["bbox"]
+    w, h = meta["width"], meta["height"]
+    img = Image.fromarray(arr, mode="L").convert("RGB")
+    draw = ImageDraw.Draw(img)
+    r = max(8, round(min(w, h) / 250))  # visible without swamping small chips
+    for d in dets:
+        col = (d.lon - min_lon) / (max_lon - min_lon) * w
+        row = (max_lat - d.lat) / (max_lat - min_lat) * h
+        draw.ellipse([col - r, row - r, col + r, row + r],
+                     outline=BUCKET_COLOR.get(d.bucket, (0, 255, 0)), width=3)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out_path)
 
 
 def load_chip(npy_path: str | Path) -> tuple[np.ndarray, dict]:
@@ -69,11 +82,8 @@ def _db_to_uint8(db: np.ndarray, lo: float, hi: float) -> np.ndarray:
 
 
 def restretch(pixels: np.ndarray, meta: dict, *, lo: float, hi: float) -> np.ndarray:
-    """Recover the (lo, hi) render from the wide-window chip. Exact affine, 0 PU.
-
-    Requires LO <= lo < hi <= HI (the calibration window from the sidecar); a
-    window outside it cannot be recovered and is a caller error, not a clamp.
-    """
+    """Recover the (lo, hi) render from the wide-window chip. Requires the sidecar's
+    LO <= lo < hi <= HI; a window outside it can't be recovered (caller error)."""
     LO, HI = meta["db_min"], meta["db_max"]
     if not (LO <= lo < hi <= HI):
         raise ValueError(
@@ -100,11 +110,8 @@ def _box_mean(a: np.ndarray, size: int) -> np.ndarray:
 
 
 def lee_filter(linear: np.ndarray, size: int) -> np.ndarray:
-    """Classic Lee speckle filter on linear σ⁰ — offline stand-in for SH speckleFilter.
-
-    Ranks candidates only; the wire confirms the winner (see the plan's Step 5). The
-    box statistics are separable, so they run as two cumsum passes per axis.
-    """
+    """Classic Lee speckle filter on linear σ⁰ — an offline stand-in for Sentinel Hub's
+    speckleFilter, for ranking candidate window/LEE settings before a confirming fetch."""
     mean = _box_mean(linear, size)
     var = np.maximum(_box_mean(linear * linear, size) - mean * mean, 0.0)
     overall = float(linear.var())
@@ -158,14 +165,10 @@ _ON_LAND = text(
 
 
 async def score(session, dets, meta: dict, *, max_distance_m: float) -> dict:
-    """Match detections against the sidecar's AIS snapshot in PostGIS. Read-only.
+    """Match detections against the sidecar's AIS snapshot in PostGIS (read-only).
 
-    - matched: detections with an AIS position within max_distance_m (the ranking metric)
-    - missed_ais: AIS positions with no detection within max_distance_m (the recall
-      diagnostic — the number that explains a live count of 1)
-    - unmatched: detections with no AIS nearby — a false alarm OR a genuine dark
-      vessel; context only, alarm only if it explodes
-    - on_land: unmatched context; 0 when coastline isn't loaded
+    Returns matched (the ranking metric), missed_ais (recall diagnostic), unmatched
+    (false alarm or genuine dark vessel), on_land (0 when coastline isn't loaded).
     """
     det_lon = [d.lon for d in dets]
     det_lat = [d.lat for d in dets]
@@ -220,6 +223,8 @@ async def main() -> int:
     parser.add_argument("--window", action="append", type=_parse_window, dest="windows")
     parser.add_argument("--lee", action="append", type=int, dest="lees")
     parser.add_argument("--conf", type=float, default=0.05)
+    parser.add_argument("--save-images", type=Path, metavar="DIR",
+                        help="write an annotated PNG per model/window/lee to DIR")
     args = parser.parse_args()
     windows = args.windows or [(-25.0, 0.0)]
     lees = args.lees or [0]
@@ -249,6 +254,11 @@ async def main() -> int:
                     width=meta["width"], height=meta["height"],
                 )
                 dets = run_detection(chip, detector)
+                if args.save_images:
+                    stem = f"{Path(args.chip).stem}__{Path(weights).stem}__w{lo}_{hi}__lee{lee}"
+                    out_png = args.save_images / f"{stem}.png"
+                    save_annotated(arr, dets, meta, out_png)
+                    print(f"  wrote {out_png}")
                 async with SessionLocal() as session:
                     s = await score(session, dets, meta, max_distance_m=max_distance_m)
                 print(

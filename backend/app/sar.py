@@ -54,9 +54,8 @@ MAX_TILE_PX = 2400  # Process API caps output at 2500 px per side
 DB_MIN = -25.0
 DB_MAX = 0.0
 
-# Sentinel Hub speckle filter applied to linear σ⁰ before the evalscript sees it
-# (e.g. {"type": "LEE", "windowSizeX": 3, "windowSizeY": 3}). None = off, the
-# production default; the bench sweeps candidates through the same declared seam.
+# Sentinel Hub speckle filter, e.g. {"type": "LEE", "windowSizeX": 3, "windowSizeY": 3}.
+# None = off (production default); the bench sweeps candidates through this same seam.
 SPECKLE_FILTER: dict | None = None
 
 EVALSCRIPT = string.Template(

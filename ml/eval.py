@@ -8,7 +8,7 @@ from ultralytics import YOLO
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("weights", help="path to best.pt")
-    parser.add_argument("--data", default="ml/hrsid.yaml")
+    parser.add_argument("--data", default="ml/xview3.yaml")
     parser.add_argument("--imgsz", type=int, default=800)
     args = parser.parse_args()
 

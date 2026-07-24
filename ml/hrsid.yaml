@@ -1,8 +1,0 @@
-# Ultralytics dataset config for the converted HRSID layout (see prepare_dataset.py).
-# `path` is resolved against the ultralytics `datasets_dir` setting — the runbook
-# sets it with:  yolo settings datasets_dir=/content/datasets
-path: hrsid
-train: images/train
-val: images/val
-names:
-  0: ship

@@ -1,26 +1,19 @@
-"""Fetch one calibration chip + AIS snapshot for a fused ROI. The only PU spend.
+"""Fetch one Sentinel-1 chip + AIS snapshot for an ROI — the only PU spend.
 
-Buys a single Sentinel-1 pass at a deliberately wide dB window (-35, +5) so every
-narrower candidate window is recoverable offline as a pure affine restretch of the
-uint8, at 0 PU (see scripts/bench_detector.py). The chip is saved as a .npy plus a
-.json sidecar carrying the ground-truth AIS snapshot — non-negotiable, because
-config.py's ais_retention_days = 2 evaporates the ground truth 48 h after fetch and
-the benchmark would then silently return zero matches, indistinguishable from a
-model regression.
-
-Reuses the production path throughout so a grazing pass is never bought: the free
-catalog + >=85% footprint-coverage guard (`find_target_scene`), the real PU model
-(`estimate_pu`), and the real tiling seam (`fetch_scene_pixels`). Only the evalscript
-differs — a calibration variant that reserves 0 for nodata rather than conflating it
-with dark water.
-
-Needs the stack up (PostGIS for AIS + coverage) and CDSE creds for the fetch:
+Buys a pass at a wide dB window (-35, +5) so any narrower candidate window is an exact
+offline restretch of the uint8 (see bench_detector.py). Saves a .npy plus a .json sidecar
+with the AIS snapshot at the scene's acquisition time — captured now because
+ais_retention_days = 2 deletes it 48 h after fetch. Reuses the production path
+(find_target_scene coverage guard, estimate_pu, fetch_scene_pixels).
 
     cd backend
     DATABASE_URL=postgresql+asyncpg://dvd:dvd@localhost:5432/dvd \\
     CDSE_CLIENT_ID=... CDSE_CLIENT_SECRET=... \\
         .venv/bin/python scripts/fetch_chip.py singapore_strait        # prompts before spending
         .venv/bin/python scripts/fetch_chip.py malta_hurds_bank --yes  # no prompt
+
+--no-ais skips the fused-ROI AIS-coverage gate (fetch before AIS has spanned a pass); the
+snapshot is then empty, so use it only for detection-count comparison, not matched/missed.
 """
 
 from __future__ import annotations
@@ -32,6 +25,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # import app.* when run as a script
+
 from sqlalchemy import text
 
 from app.config import get_settings
@@ -40,16 +35,11 @@ from app.pipeline import find_target_scene
 from app.rois import get_roi
 from app.sar import SarScene, estimate_pu, fetch_scene_pixels, plan_fetch_grid
 
-# Wide window: any narrower candidate (lo, hi) with -35 <= lo < hi <= 5 is an exact
-# affine restretch of this uint8 offline. Quantization is 40 dB / 254 = 0.157 dB,
-# two orders below GRDH's ~2-3 dB speckle floor. +5 retained so the histogram above
-# the production 0 dB cap can answer whether the live window discards bright signal.
+# Wide fetch window; narrower candidates restretch offline at 0 PU. Quantization is
+# 40 dB / 254 = 0.16 dB, well under the speckle floor.
 CALIB_DB_MIN, CALIB_DB_MAX = -35.0, 5.0
 
-# Valid data occupies 1-255; 0 is reserved for nodata. Production (sar.py) maps
-# nodata to 0 too, conflating it with very dark water — fine for display, not for
-# honest per-pixel statistics.
-NODATA_VALUE = 0
+NODATA_VALUE = 0  # valid data occupies 1-255; 0 is reserved for nodata.
 
 CHIP_DIR = Path(__file__).resolve().parents[1] / "data" / "chips"  # gitignored
 
@@ -102,11 +92,7 @@ async def snapshot_ais(
     sensed_at: datetime,
     window_hours: float,
 ) -> list[dict]:
-    """Every AIS position inside `bbox` within ±`window_hours` of `sensed_at`.
-
-    The correlation ground truth, frozen into the sidecar before AIS retention
-    (2 days) can delete it.
-    """
+    """Every AIS position inside `bbox` within ±`window_hours` of `sensed_at`."""
     min_lon, min_lat, max_lon, max_lat = bbox
     rows = (
         await session.execute(
@@ -164,12 +150,13 @@ def save_chip(chip, scene: SarScene, roi_name: str, meta_extra: dict, out_dir: P
 async def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     assume_yes = "--yes" in sys.argv[1:]
+    require_ais = "--no-ais" not in sys.argv[1:]
     if len(args) != 1:
         print(__doc__)
         return 2
     roi = get_roi(args[0])
 
-    scene, status = await find_target_scene(roi)
+    scene, status = await find_target_scene(roi, require_ais=require_ais)
     grid = plan_fetch_grid(roi.sar_bbox)
     pu = estimate_pu(grid)
     print(

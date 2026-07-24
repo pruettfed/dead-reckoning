@@ -1,21 +1,10 @@
 """Calibrate a Sentinel-1 GRD .SAFE product to a VV sigma0-dB GeoTIFF.
 
-SARFish ships Level-1 GRD products as raw `.SAFE.zip` archives whose measurement
-rasters are uncalibrated uint16 amplitude (digital numbers). The live pipeline, by
-contrast, fetches *calibrated* backscatter: backend/app/sar.py requests
-SIGMA0_ELLIPSOID and its evalscript renders `10*log10(sigma0)`. Training on raw DN
-would reopen a radiometric domain gap on the very axis this retrain closes.
-
-This step applies ESA's radiometric calibration —
-
-    sigma0 = DN**2 / sigmaNought**2          (sigmaNought from the calibration LUT)
-    dB     = 10 * log10(sigma0)
-
-— and writes `{out}/{scene_id}/VV_dB.tif`, exactly the layout and quantity
-prepare_xview3.py already consumes (xView3's own VV_dB.tif is the same thing). So
-the chipper is unchanged; only the source differs.
-
-Usage (see ml/README.md for the Colab runbook):
+SARFish ships raw Level-1 GRD (uint16 amplitude); the pipeline fetches calibrated
+backscatter (SIGMA0_ELLIPSOID, rendered as 10*log10(sigma0)). This applies ESA's
+radiometric calibration — sigma0 = DN**2 / sigmaNought**2, dB = 10*log10(sigma0) —
+and writes {out}/{scene_id}/VV_dB.tif, the exact layout and quantity prepare_xview3.py
+consumes (xView3's own VV_dB.tif is the same thing).
 
     python ml/safe_to_db.py --safe S1A_..._GRDH_...SAFE.zip \
       --labels /content/xview3/labels.csv --out /content/xview3
@@ -23,23 +12,17 @@ Usage (see ml/README.md for the Colab runbook):
 
 import argparse
 import csv
-import io
-import math
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
 import numpy as np
 
-NODATA_DN = 0  # ESA marks absent samples with 0; render_db treats NaN dB as nodata.
+NODATA_DN = 0  # ESA marks absent samples with 0; calibrate_to_db maps them to NaN.
 
 
 def find_members(names: list[str]) -> tuple[str, str]:
-    """Locate the VV measurement raster and its calibration XML inside a .SAFE.
-
-    Returns (measurement_path, calibration_path). GRD dual-pol products carry both
-    VV and VH; only VV is fetched by the pipeline, so VH is ignored.
-    """
+    """Locate the VV measurement raster and its calibration XML inside a .SAFE."""
     def pick(kind: str, suffix: str) -> str:
         hits = [
             n for n in names
@@ -57,12 +40,7 @@ def find_members(names: list[str]) -> tuple[str, str]:
 
 
 def parse_calibration_lut(xml_bytes: bytes) -> tuple[np.ndarray, list[np.ndarray], list[np.ndarray]]:
-    """Parse a calibration XML → (lines, pixels_per_vector, sigma0_per_vector).
-
-    Each calibrationVector samples sigmaNought on a coarse grid: one image `line`,
-    a list of `pixel` columns, and the matching `sigmaNought` values. The pixel
-    columns are usually identical across vectors but are not required to be.
-    """
+    """Parse the calibration XML → (lines, pixels_per_vector, sigmaNought_per_vector)."""
     root = ET.fromstring(xml_bytes)
     vectors = root.find("calibrationVectorList")
     if vectors is None or len(vectors) == 0:
@@ -84,11 +62,7 @@ def parse_calibration_lut(xml_bytes: bytes) -> tuple[np.ndarray, list[np.ndarray
 def column_lut(
     lines: np.ndarray, pixels: list[np.ndarray], sigmas: list[np.ndarray], width: int
 ) -> np.ndarray:
-    """(n_vectors, width) float32: each vector's sigmaNought across the full width.
-
-    Computed once per scene and reused for every row block — it is tiny (a dozen
-    rows) next to the full raster, which is what keeps calibration streamable.
-    """
+    """(n_vectors, width): each calibration vector's sigmaNought across the full width."""
     full_cols = np.arange(width, dtype=np.float64)
     return np.stack(
         [np.interp(full_cols, pixels[v], sigmas[v]) for v in range(len(lines))]
@@ -96,11 +70,7 @@ def column_lut(
 
 
 def row_lut(lines: np.ndarray, columns: np.ndarray, rows: np.ndarray) -> np.ndarray:
-    """(len(rows), width) float32: blend the per-vector column LUTs by image line.
-
-    Endpoints hold flat beyond the sampled extent (clipped bracket) — the LUT spans
-    the imaged area and nodata borders never enter calibration.
-    """
+    """(len(rows), width): blend the per-vector column LUTs by image line; ends held flat."""
     rows = np.asarray(rows, dtype=np.float64)
     if len(lines) == 1:
         return np.broadcast_to(columns[0], (len(rows), columns.shape[1])).copy()
@@ -114,21 +84,13 @@ def row_lut(lines: np.ndarray, columns: np.ndarray, rows: np.ndarray) -> np.ndar
 def expand_lut(
     lines: np.ndarray, pixels: list[np.ndarray], sigmas: list[np.ndarray], height: int, width: int
 ) -> np.ndarray:
-    """Full-resolution sigmaNought grid — the column then row interpolation composed.
-
-    Convenient for tests; convert() calls the two pieces per block so the full grid
-    is never materialised (a 26000x16000 float grid is multiple GB).
-    """
+    """Full-resolution sigmaNought grid (column then row interp). For tests; convert()
+    interpolates per block so the multi-GB full grid is never materialised."""
     return row_lut(lines, column_lut(lines, pixels, sigmas, width), np.arange(height))
 
 
 def calibrate_to_db(dn: np.ndarray, sigma_lut: np.ndarray) -> np.ndarray:
-    """DN amplitude + sigmaNought LUT → sigma0 in dB, nodata as NaN.
-
-    sigma0 = DN**2 / sigmaNought**2; dB = 10*log10(sigma0). DN == 0 is nodata and
-    maps to NaN so prepare_xview3.render_db collapses it to the 0 the production
-    evalscript emits for `dataMask == 0`.
-    """
+    """DN + sigmaNought LUT → sigma0 in dB; DN==0 (nodata) → NaN, so render_db drops it."""
     valid = dn != NODATA_DN
     sigma0 = np.zeros(dn.shape, dtype=np.float32)
     dn_f = dn.astype(np.float32)
@@ -140,11 +102,7 @@ def calibrate_to_db(dn: np.ndarray, sigma_lut: np.ndarray) -> np.ndarray:
 
 
 def _read_safe(safe: Path) -> tuple[np.ndarray, bytes]:
-    """Return (DN array, calibration XML bytes) from a .SAFE.zip or unzipped dir.
-
-    Reads the measurement raster with rasterio (via /vsizip/ for archives, so no
-    unzip and no disk doubling) and the calibration XML with stdlib zipfile.
-    """
+    """Read (DN array, calibration XML) from a .SAFE.zip (via /vsizip/, no unzip) or dir."""
     import rasterio
 
     if safe.is_dir():
@@ -164,12 +122,8 @@ def _read_safe(safe: Path) -> tuple[np.ndarray, bytes]:
 
 
 def scene_id_for(product_identifier: str, labels_csv: Path) -> str:
-    """Map a GRD product identifier → xView3 scene_id via the labels CSV.
-
-    Labels carry both `scene_id` and `GRD_product_identifier`; naming the output by
-    scene_id lets prepare_xview3.py match imagery to labels with no extra mapping
-    file. Falls back to the identifier itself if the column is absent.
-    """
+    """Map a GRD product identifier → xView3 scene_id via the labels CSV, so the output
+    dir name matches what prepare_xview3.py joins on. Falls back to the identifier."""
     stem = Path(product_identifier).name.removesuffix(".SAFE.zip").removesuffix(".SAFE")
     with labels_csv.open(newline="") as handle:
         reader = csv.DictReader(handle)
@@ -181,16 +135,16 @@ def scene_id_for(product_identifier: str, labels_csv: Path) -> str:
     raise SystemExit(f"{stem} matched no GRD_product_identifier in {labels_csv}")
 
 
-# Calibrate a stripe at a time. A full scene as float32 is several GB; on a ~12 GB
-# Colab box, materialising the whole dB raster plus the LUT OOM-kills the process.
-BLOCK_ROWS = 2048  # a multiple of the 512 output tile height, so stripes write in order
+# Calibrate one stripe at a time — a full scene as float32 is several GB and OOMs a
+# ~12 GB Colab box. Multiple of the 512 tile height so stripes write in order.
+BLOCK_ROWS = 2048
 
 
 def convert(safe: Path, out_dir: Path, scene_id: str, block_rows: int = BLOCK_ROWS) -> Path:
     import rasterio
     from rasterio.windows import Window
 
-    dn, calib_bytes = _read_safe(safe)  # uint16, ~0.8 GB — read whole, calibrate blocked
+    dn, calib_bytes = _read_safe(safe)
     lines, pixels, sigmas = parse_calibration_lut(calib_bytes)
     height, width = dn.shape
     columns = column_lut(lines, pixels, sigmas, width)

@@ -49,8 +49,9 @@ frontend/src/
   types.ts              # API response types
   components/           # MapView, VesselLayer, SceneLayer, ScenePanel
 ml/
-  README.md             # Colab runbook — fine-tune YOLOv8 on HRSID (LS-SSDD fallback)
-  prepare_dataset.py    # COCO → YOLO converter (HRSID / LS-SSDD / SSDD)
+  README.md             # Colab runbook — fine-tune YOLOv8 on xView3/SARFish
+  safe_to_db.py         # Sentinel-1 GRD .SAFE → calibrated sigma0-dB GeoTIFF
+  prepare_xview3.py     # dB GeoTIFF + labels → chipped YOLO dataset
   train.py / eval.py    # ultralytics train + mAP eval
 docs/
   api.md                # endpoint reference

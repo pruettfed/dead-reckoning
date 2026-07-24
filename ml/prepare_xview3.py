@@ -1,23 +1,12 @@
-"""Chip the xView3-SAR dataset into a YOLO training set at the pipeline's own rendering.
+"""Chip xView3/SARFish dB GeoTIFFs into a YOLO training set at the pipeline's rendering.
 
-xView3 scenes are ~29400x24400 Sentinel-1 IW GRD rasters with the SAR bands already
-stored in decibels (VV_dB.tif). That is the same quantity backend/app/sar.py computes
-from linear sigma0, so chips are rendered here through the *identical* dB->uint8
-transform the production evalscript applies. The model therefore trains on pixels
-identical in kind to what it sees at inference — the domain gap this whole exercise
-exists to close.
+Renders each VV_dB.tif through the same dB->uint8 window production uses (see render_db),
+so the model trains on pixels identical in kind to inference. Labels are points; boxes
+are used where supplied and synthesised from vessel_length_m otherwise — box precision
+barely matters since detect.py collapses each prediction to a centroid.
 
-Labels are points plus attributes, not boxes (see --help for the columns). Boxes are
-used where xView3 supplies them and synthesised from vessel_length_m otherwise; box
-precision barely matters here because backend/app/detect.py collapses every predicted
-box to a centroid and discards the extent.
-
-Usage (see ml/README.md for the full Colab runbook):
-
-    python ml/prepare_xview3.py \
-      --scenes /content/xview3/validation \
-      --labels /content/xview3/validation.csv \
-      --out /content/datasets/xview3
+    python ml/prepare_xview3.py --scenes /content/xview3 \
+      --labels /content/xview3/labels.csv --out /content/datasets/xview3
 """
 
 import argparse
@@ -113,11 +102,7 @@ def load_labels(csv_path: Path) -> dict[str, list[Label]]:
 
 
 def render_db(window: np.ndarray, *, db_min: float = DB_MIN, db_max: float = DB_MAX) -> np.ndarray:
-    """dB float raster → uint8, exactly as backend/app/sar.py's evalscript does.
-
-    Non-finite samples (xView3 marks absent data with NaN) collapse to 0, matching
-    the production evalscript's `dataMask === 0` branch.
-    """
+    """dB float raster → uint8, matching sar.py's evalscript; NaN (nodata) → 0."""
     scaled = (window - db_min) / (db_max - db_min)
     scaled = np.where(np.isfinite(window), np.clip(scaled, 0.0, 1.0), 0.0)
     return (scaled * 255).astype(np.uint8)
@@ -126,12 +111,11 @@ def render_db(window: np.ndarray, *, db_min: float = DB_MIN, db_max: float = DB_
 def labels_in_window(
     labels: list[Label], x_off: int, y_off: int, size: int
 ) -> tuple[list[str], bool]:
-    """YOLO lines for labels centred in this window, plus whether to reject the chip.
+    """YOLO lines for labels centred in this window, plus a reject flag.
 
-    A chip is rejected when it contains any detection that was filtered out — a
-    low-confidence label, or a non-vessel such as a platform or wind turbine. Those
-    pixels hold a bright target with no box, and training on them would teach the
-    model to suppress exactly the returns it is supposed to find.
+    Rejects the whole chip if it holds any filtered-out detection (low-confidence, or a
+    non-vessel like a platform) — training on that bright, box-less target would teach
+    the model to suppress the returns it should find.
     """
     lines: list[str] = []
     for label in labels:
