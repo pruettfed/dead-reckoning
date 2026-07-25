@@ -7,9 +7,9 @@ from app.pipeline import (
     _footprint_wkts_in_window,
     eligible_scenes,
     estimate_next_pass,
-    footprint_to_ewkt,
+    imaged_footprint_wkts,
 )
-from app.sar import SarScene
+from app.sar import SarScene, _bbox_to_polygon_wkt
 
 NOW = datetime(2026, 7, 11, 12, 0, tzinfo=timezone.utc)
 
@@ -115,21 +115,30 @@ class TestEstimateNextPass:
         assert estimate_next_pass(times, NOW) == estimate_next_pass(sorted(times), NOW)
 
 
-class TestFootprintToEwkt:
-    BBOX = (56.5, 25.0, 57.1, 25.6)
+class TestImagedFootprintWkts:
+    """The stored footprint is the mosaic-window union, not the anchor slice — the
+    clip deletes real detections in the imaged rest if it's only one slice."""
 
-    def test_cdse_wrapper_stripped(self):
-        raw = "geography'SRID=4326;POLYGON ((56.1 24.9, 57.5 24.9, 57.5 25.8, 56.1 25.8, 56.1 24.9))'"
-        assert footprint_to_ewkt(raw, self.BBOX) == (
-            "SRID=4326;POLYGON ((56.1 24.9, 57.5 24.9, 57.5 25.8, 56.1 25.8, 56.1 24.9))"
+    BBOX = (56.9, 25.6, 57.4, 26.05)
+
+    @staticmethod
+    def _scene(scene_id, offset_min, wkt):
+        s = make_scene(scene_id, NOW + timedelta(minutes=offset_min))
+        return SarScene(
+            id=s.id, name=s.name, sensed_at=s.sensed_at,
+            footprint_wkt=wkt, platform=s.platform, is_cog=False,
         )
 
-    def test_plain_wkt_gets_srid_prefix(self):
-        assert footprint_to_ewkt("POLYGON ((0 0, 1 0, 1 1, 0 0))", self.BBOX) == (
-            "SRID=4326;POLYGON ((0 0, 1 0, 1 1, 0 0))"
-        )
+    def test_returns_every_in_window_slice(self):
+        anchor = self._scene("a", 0, "POLYGON((0 0,1 0,1 1,0 1,0 0))")
+        ahead = self._scene("b", 5, "POLYGON((1 0,2 0,2 1,1 1,1 0))")
+        assert imaged_footprint_wkts([anchor, ahead], anchor, self.BBOX) == [
+            "POLYGON((0 0,1 0,1 1,0 1,0 0))",
+            "POLYGON((1 0,2 0,2 1,1 1,1 0))",
+        ]
 
-    def test_missing_footprint_falls_back_to_bbox(self):
-        ewkt = footprint_to_ewkt(None, self.BBOX)
-        assert ewkt.startswith("SRID=4326;POLYGON((56.5 25.0,")
-        assert "57.1 25.6" in ewkt
+    def test_falls_back_to_bbox_when_no_footprints(self):
+        anchor = make_scene("a", NOW)  # footprint_wkt is None
+        assert imaged_footprint_wkts([anchor], anchor, self.BBOX) == [
+            _bbox_to_polygon_wkt(self.BBOX)
+        ]

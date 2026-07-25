@@ -133,15 +133,15 @@ def estimate_next_pass(sensed_times: list[datetime], now: datetime) -> datetime 
     return expected
 
 
-def footprint_to_ewkt(footprint_wkt: str | None, bbox: tuple[float, float, float, float]) -> str:
-    """CDSE OData footprint (`geography'SRID=4326;POLYGON(...)'`) → plain EWKT.
+def imaged_footprint_wkts(
+    window_scenes: list[SarScene], anchor: SarScene, sar_bbox: tuple[float, float, float, float]
+) -> list[str]:
+    """Footprint WKTs the Process API mosaics for `anchor`; the bbox itself when none.
 
-    Falls back to the ROI bbox when the catalog returned no footprint.
+    Storing the mosaic-window union (clipped to sar_bbox at insert time), not the
+    anchor slice, keeps the footprint clip from deleting detections we did image.
     """
-    if footprint_wkt:
-        wkt = footprint_wkt.split(";", 1)[-1].strip().rstrip("'")
-        return f"SRID=4326;{wkt}"
-    return f"SRID=4326;{_bbox_to_polygon_wkt(bbox)}"
+    return _footprint_wkts_in_window(window_scenes, anchor) or [_bbox_to_polygon_wkt(sar_bbox)]
 
 
 def is_in_flight(roi_name: str) -> bool:
@@ -242,7 +242,18 @@ def start_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
 UPSERT_SCENE = text(
     """
     INSERT INTO sar_scenes (id, name, roi, sensed_at, footprint, platform, status)
-    VALUES (:id, :name, :roi, :sensed_at, ST_GeogFromText(:footprint), :platform, 'processing')
+    VALUES (
+        :id, :name, :roi, :sensed_at,
+        -- Imaged region = mosaic-window slices unioned, clipped to sar_bbox.
+        ST_Intersection(
+            ST_Union(ARRAY(
+                SELECT ST_GeomFromText(w, 4326)
+                FROM unnest(CAST(:wkts AS text[])) AS w
+            )),
+            ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
+        )::geography,
+        :platform, 'processing'
+    )
     ON CONFLICT (id) DO UPDATE SET status = 'processing', error = NULL
     """
 )
@@ -258,6 +269,12 @@ STORE_OVERVIEW = text(
 
 async def _run_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
     settings = get_settings()
+    # The slices the Process API will mosaic for this pass (free catalog call).
+    window = await search_scenes(
+        roi.sar_bbox, scene.sensed_at - PROCESS_WINDOW_BACK, scene.sensed_at + PROCESS_WINDOW_FWD
+    )
+    wkts = imaged_footprint_wkts(window, scene, roi.sar_bbox)
+    min_lon, min_lat, max_lon, max_lat = roi.sar_bbox
     async with SessionLocal() as session:
         await session.execute(
             UPSERT_SCENE,
@@ -266,7 +283,11 @@ async def _run_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
                 "name": scene.name,
                 "roi": roi.name,
                 "sensed_at": scene.sensed_at,
-                "footprint": footprint_to_ewkt(scene.footprint_wkt, roi.sar_bbox),
+                "wkts": wkts,
+                "min_lon": min_lon,
+                "min_lat": min_lat,
+                "max_lon": max_lon,
+                "max_lat": max_lat,
                 "platform": scene.platform,
             },
         )
