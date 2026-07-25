@@ -18,3 +18,15 @@ export async function apiPost<T>(path: string, headers?: Record<string, string>)
   }
   return (await res.json()) as T;
 }
+
+export async function apiDelete<T>(path: string, headers?: Record<string, string>): Promise<T> {
+  const res = await fetch(`/api${path}`, { method: "DELETE", headers });
+  if (!res.ok) {
+    const detail = await res
+      .json()
+      .then((body) => body.detail as string)
+      .catch(() => res.statusText);
+    throw new Error(`DELETE /api${path} failed (${res.status}): ${detail}`);
+  }
+  return (await res.json()) as T;
+}

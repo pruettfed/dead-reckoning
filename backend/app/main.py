@@ -248,6 +248,25 @@ async def trigger_analysis(roi: str, response: Response) -> dict:
     return {"scene_id": scene.id, "status": "processing"}
 
 
+# Detections cascade via the sar_detections → sar_scenes FK; AIS is untouched.
+RESET_ANALYSES = text("DELETE FROM sar_scenes")
+
+
+@app.delete(
+    "/api/analyses",
+    dependencies=[Depends(require_analysis_key)],
+    summary="Admin-only: delete every SAR scene and detection (AIS data is kept)",
+)
+async def reset_analyses(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    if pipeline.any_in_flight():
+        raise HTTPException(status_code=409, detail="an analysis is running; wait for it to finish")
+    result = await session.execute(RESET_ANALYSES)
+    await session.commit()
+    return {"scenes_deleted": result.rowcount}
+
+
 SCENES_QUERY = text(
     """
     SELECT s.id, s.name, s.roi, s.sensed_at, s.platform, s.status, s.processed_at, s.error,

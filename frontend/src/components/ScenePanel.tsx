@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPost } from "../api";
+import { apiDelete, apiGet, apiPost } from "../api";
 import type { NextPass, Scene } from "../types";
 
 type Props = {
@@ -27,6 +27,15 @@ export default function ScenePanel({ roi, scenes, selectedSceneId, onSelect }: P
         "X-Analysis-Key": analysisKey ?? "",
       }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["scenes", roi] }),
+  });
+
+  // Wipes every ROI's scenes + detections (AIS is kept), so refresh everything.
+  const reset = useMutation({
+    mutationFn: () =>
+      apiDelete<{ scenes_deleted: number }>("/analyses", {
+        "X-Analysis-Key": analysisKey ?? "",
+      }),
+    onSettled: () => queryClient.invalidateQueries(),
   });
 
   return (
@@ -56,6 +65,22 @@ export default function ScenePanel({ roi, scenes, selectedSceneId, onSelect }: P
             {trigger.isPending ? "Requesting…" : "Run analysis on latest pass"}
           </button>
           {trigger.isError && <span className="error"> {String(trigger.error.message)}</span>}
+          <br />
+          <button
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Delete ALL SAR scenes and detections across every region? AIS data is kept. This can't be undone.",
+                )
+              ) {
+                reset.mutate();
+              }
+            }}
+            disabled={reset.isPending}
+          >
+            {reset.isPending ? "Resetting…" : "Reset all analyses"}
+          </button>
+          {reset.isError && <span className="error"> {String(reset.error.message)}</span>}
         </p>
       )}
 

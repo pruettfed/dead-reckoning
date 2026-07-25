@@ -149,6 +149,10 @@ def is_in_flight(roi_name: str) -> bool:
     return task is not None and not task.done()
 
 
+def any_in_flight() -> bool:
+    return any(not task.done() for task in _in_flight.values())
+
+
 # AIS coverage is judged per ROI: data in another region must not greenlight
 # fusion here, or every detection would be falsely dark.
 MIN_AIS_IN_ROI = text(
