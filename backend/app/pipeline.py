@@ -144,6 +144,18 @@ def imaged_footprint_wkts(
     return _footprint_wkts_in_window(window_scenes, anchor) or [_bbox_to_polygon_wkt(sar_bbox)]
 
 
+def _fusion_summary(counts: dict) -> str:
+    """Fusion verdict for the log; the dark count means nothing without its noise floor."""
+    if counts["chance_match_rate"] is None:
+        return f"{counts['indeterminate']} indeterminate; chance-match unmeasurable"
+    quality = "discriminating" if counts["discriminating"] else "NOT DISCRIMINATING, dark calls withheld"
+    return (
+        f"{counts['dark']} dark, {counts['indeterminate']} indeterminate; "
+        f"chance-match {counts['chance_match_rate']:.1%} ({quality}); "
+        f"large-vessel recall {counts['recall_large_detected']}/{counts['recall_large_total']}"
+    )
+
+
 def is_in_flight(roi_name: str) -> bool:
     task = _in_flight.get(roi_name)
     return task is not None and not task.done()
@@ -321,8 +333,7 @@ async def _run_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
                 session,
                 scene.id,
                 scene.sensed_at,
-                max_distance_m=settings.fusion_max_distance_m,
-                window_hours=settings.fusion_max_time_delta_hours,
+                settings=settings,
                 fused=roi.mode == "fused",
             )
             await session.execute(
@@ -333,13 +344,14 @@ async def _run_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
                 {"id": scene.id},
             )
             await session.commit()
+        verdict = _fusion_summary(counts) if roi.mode == "fused" else "unfused (survey ROI)"
         logger.info(
             "analysis %s scene %s: %s detections (%s masked on land), %s",
             roi.name,
             scene.name,
             counts["total"],
             on_land,
-            f"{counts['dark']} dark" if roi.mode == "fused" else "unfused (survey ROI)",
+            verdict,
         )
     except asyncio.CancelledError:
         raise

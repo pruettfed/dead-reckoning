@@ -98,6 +98,22 @@ export default function ScenePanel({ roi, scenes, selectedSceneId, onSelect }: P
             {s.status === "processed" && (
               <span>
                 {s.detection_count} detections, <b>{s.dark_count} dark</b>
+                {s.indeterminate_count > 0 && <>, {s.indeterminate_count} unresolved</>}
+                {/* A dark count without its noise floor is not a result. */}
+                {s.chance_match_rate !== null && (
+                  <>
+                    <br />
+                    <span className="muted">
+                      false-match rate {(s.chance_match_rate * 100).toFixed(1)}%
+                      {s.recall_large_total !== null && s.recall_large_total > 0 && (
+                        <>
+                          {" "}· large-vessel recall {s.recall_large_detected}/
+                          {s.recall_large_total}
+                        </>
+                      )}
+                    </span>
+                  </>
+                )}
               </span>
             )}
             {s.status === "failed" && <span className="error">{s.error}</span>}

@@ -64,7 +64,13 @@ export type Scene = {
   has_overview: boolean;
   detection_count: number; // excludes land-masked hits
   dark_count: number;
+  indeterminate_count: number;
   land_count: number;
+  // Noise floor the dark count is measured against; null for survey ROIs.
+  chance_match_rate: number | null;
+  // Recall against AIS-confirmed large vessels underway in the footprint.
+  recall_large_total: number | null;
+  recall_large_detected: number | null;
 };
 
 export type Detection = {
@@ -73,13 +79,17 @@ export type Detection = {
   lon: number;
   confidence: number;
   confidence_bucket: "high" | "medium" | "low";
+  match_state: "matched" | "dark" | "indeterminate" | null;
+  // `match_state` narrowed for counting: null for indeterminate.
   is_dark: boolean | null;
   // Fell inside the coastline mask — a rock or shore structure, not a vessel.
   // Only ever present when the request asked for masked hits.
   on_land: boolean;
   matched_mmsi: number | null;
-  match_distance_m: number | null;
-  match_time_delta_s: number | null;
+  match_distance_m: number | null; // from the vessel's dead-reckoned position
+  match_time_delta_s: number | null; // signed age of the AIS fix used
+  // Metres outside the nearest vessel's uncertainty envelope; negative = inside.
+  dark_margin_m: number | null;
   ship_name: string | null;
   ship_type: number | null;
   callsign: string | null;

@@ -230,7 +230,7 @@ async def main() -> int:
     lees = args.lees or [0]
 
     pixels, meta = load_chip(args.chip)
-    max_distance_m = get_settings().fusion_max_distance_m
+    max_distance_m = get_settings().match_radius_m
 
     async with SessionLocal() as session:
         loaded = await land_loaded(session)

@@ -9,6 +9,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     SmallInteger,
     String,
@@ -88,6 +89,12 @@ class SarSceneRow(Base):
     # Downsampled grayscale PNG of the chip, for map display and eyeballing
     # detections against the radar returns.
     overview_png: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # Fraction of empty water the matcher would call "matched" — the noise floor
+    # every dark call in this scene is measured against.
+    chance_match_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Recall against AIS-confirmed large vessels underway in the footprint.
+    recall_large_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    recall_large_detected: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         Index("ix_sar_scenes_roi_sensed_at", "roi", "sensed_at"),
@@ -112,10 +119,17 @@ class SarDetection(Base):
     )
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     confidence_bucket: Mapped[str] = mapped_column(String(8), nullable=False)
+    # matched | dark | indeterminate; NULL for survey ROIs (never fused).
+    match_state: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # `match_state` narrowed for counting: NULL for indeterminate, since an
+    # unproven claim is not a false one.
     is_dark: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     matched_mmsi: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     match_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Signed age of the AIS fix dead-reckoned from (fix − acquisition).
     match_time_delta_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Metres outside the nearest uncertainty envelope; negative = inside it.
+    dark_margin_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Detection fell inside land_polygons (a rock, breakwater or shore
     # structure, not a vessel). Excluded from fusion and from the default API
     # response. Recomputable from `location` alone at zero PU — see landmask.py.

@@ -9,7 +9,7 @@ Maritime OSINT platform: detect ships in Sentinel-1 SAR (radar) imagery, cross-r
 1. **AIS ingest** (`ais.py`, `ingest.py`) — AISStream WebSocket → PostGIS, continuous; switching the frontend ROI is a view filter only, never narrows ingestion.
 2. **SAR detect** (`sar.py`, `detect.py`) — newest Sentinel-1 IW GRDH pass fetched as VV chips (Process API, tiled), run through tiled YOLOv8 → centroids + confidence (high/med/low).
 3. **Land mask** (`landmask.py`) — detections inside `land_polygons` flagged `on_land`, excluded from fusion and counts. Load with `scripts/load_land.py` (0 PU).
-4. **Fusion** (`fusion.py`) — `ST_DWithin` match at the scene's acquisition time; dark = no AIS within 500 m / 2 h, clipped to `sar_bbox` ∩ image-footprint. Skipped entirely for `survey` ROIs (`is_dark` stays NULL).
+4. **Fusion** (`fusion.py`) — AIS dead-reckoned to the acquisition instant (`sog`/`cog`), matched one-to-one against a physical uncertainty budget (`MATCH_RADIUS_M` + SAR azimuth displacement + fix-age drift), clipped to `sar_bbox` ∩ image-footprint. Three states: `matched` / `dark` / `indeterminate`. Every scene measures its own false-match rate on empty water and withholds dark calls above `MAX_CHANCE_MATCH_RATE`. Skipped entirely for `survey` ROIs (`is_dark` stays NULL).
 5. **Surface** (frontend) — react-leaflet; selecting a scene freezes the vessel layer at its time (scene = time control); triggering analysis is admin-only. The map draws both ROI boxes and drapes the stored SAR overview under the detections.
 
 ## Status (2026-07-20) — region rework landed
@@ -38,7 +38,10 @@ Maritime OSINT platform: detect ships in Sentinel-1 SAR (radar) imagery, cross-r
 ## Constraints (correctness / budget guardrails)
 
 - **PostGIS everywhere** — never SQLite in Docker or prod.
-- **Fusion in SQL** — `ST_DWithin`, 500 m / 2 h; never reimplement distance in Python.
+- **Fusion in SQL** — PostGIS owns every metre (dead reckoning via `ST_Project`, matching via `ST_DWithin`); never reimplement distance in Python. Only the one-to-one assignment is Python, because it is combinatorics, not geometry.
+- **Never match raw AIS positions** — median cadence is 168 s, 864 m of travel at 10 kn, further than any sane radius. Dead-reckon to the acquisition instant or the match is meaningless. Match gates must include the SAR azimuth displacement of a moving target (~450 m at 10 kn) or ordinary traffic reads as dark.
+- **A dark count is not a result without its noise floor.** Every fused scene probes empty water and stores `chance_match_rate`; above `MAX_CHANCE_MATCH_RATE` darks are withheld as `indeterminate`. Re-measure with `scripts/refuse.py` (0 PU) — never tune the gate by intuition. Full derivation: `docs/fusion-rework.md`.
+- **Recall is reported against resolvable hulls only** (AIS ship_type 60–89) — at 10 m/px a fishing boat is under the sensor, so counting it measures Sentinel-1, not the model.
 - **Clip to ROI ∩ footprint** — a detection outside the imaged footprint is unobserved, not dark. Never mosaic passes for correlation (different times = vessels moved).
 - **PU budget 30,000/mo** — only pixel fetch spends PU (~18–107/analysis, scales with `sar_bbox` area — see `estimate_pu`); catalog search free. Scenes DB-cached (re-analysis = 0 PU). Never discover via Copernicus Browser (burns PU). Cost is *usable passes × PU/pass* — price with `backend/scripts/probe_regions.py` (free), never by intuition. `test_monthly_pu_within_budget` fails the build if the registry exceeds budget.
 - **A pass must actually image the box** — the catalog's "intersects" is not enough: a swath clipping one corner costs full PU and returns a black chip. `find_target_scene` computes the mosaicked footprint's coverage of `sar_bbox` in PostGIS and refuses below `MIN_FOOTPRINT_COVERAGE` (85%), before any spend. Coverage is the union over the Process API's `[-1 min, +10 min]` window (`PROCESS_WINDOW_BACK`/`FWD`), not one slice — keep those constants in sync with `build_process_request`. Roughly half of all passes fail this; `passes_per_month` in `rois.py` counts only the ones that pass.

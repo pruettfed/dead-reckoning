@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
-from app import landmask, pipeline, sources
+from app import fusion, landmask, pipeline, sources
 from app.config import get_settings
 from app.database import Base, engine, get_session
 from app.detect import DetectorUnavailable, load_detector
@@ -31,9 +31,8 @@ logging.basicConfig(
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # create_all cannot add a column to an existing table and there is no
-        # Alembic — this backfills `on_land` on databases that predate it.
         await landmask.apply_schema(conn)
+        await fusion.apply_schema(conn)
     sources.mark_disconnected(pipeline.SOURCE)  # list the SAR source in /api/health from boot
     stop = asyncio.Event()
     tasks = [
@@ -273,8 +272,10 @@ SCENES_QUERY = text(
            ST_AsGeoJSON(s.footprint) AS footprint,
            s.imaged_bbox,
            s.overview_png IS NOT NULL AS has_overview,
+           s.chance_match_rate, s.recall_large_total, s.recall_large_detected,
            count(d.id) FILTER (WHERE NOT d.on_land) AS detection_count,
            count(d.id) FILTER (WHERE d.is_dark) AS dark_count,
+           count(d.id) FILTER (WHERE d.match_state = 'indeterminate') AS indeterminate_count,
            count(d.id) FILTER (WHERE d.on_land) AS land_count
     FROM sar_scenes s
     LEFT JOIN sar_detections d ON d.scene_id = s.id
@@ -304,8 +305,8 @@ DETECTIONS_QUERY = text(
     SELECT d.id,
            ST_Y(d.location::geometry) AS lat,
            ST_X(d.location::geometry) AS lon,
-           d.confidence, d.confidence_bucket, d.is_dark, d.on_land,
-           d.matched_mmsi, d.match_distance_m, d.match_time_delta_s,
+           d.confidence, d.confidence_bucket, d.is_dark, d.match_state, d.on_land,
+           d.matched_mmsi, d.match_distance_m, d.match_time_delta_s, d.dark_margin_m,
            m.ship_name, m.ship_type, m.callsign
     FROM sar_detections d
     LEFT JOIN ship_metadata m ON m.mmsi = d.matched_mmsi

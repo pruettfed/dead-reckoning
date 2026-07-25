@@ -24,9 +24,11 @@ function overlayBounds(bbox: Bbox): [[number, number], [number, number]] {
 
 // Survey ROIs have no AIS to correlate against, so their detections are observed
 // vessels — amber, never the red that asserts a vessel is running dark.
+// `indeterminate` shares that amber: neither matched nor ruled out.
 function markerColor(d: Detection, mode: Roi["mode"]): string {
   if (d.on_land) return "#7c3aed"; // masked: distinct from every vessel state
   if (mode === "survey") return "#f59e0b";
+  if (d.match_state === "indeterminate") return "#f59e0b";
   if (d.is_dark === null) return "#9ca3af"; // unfused
   return d.is_dark ? "#dc2626" : "#16a34a";
 }
@@ -34,6 +36,7 @@ function markerColor(d: Detection, mode: Roi["mode"]): string {
 function markerLabel(d: Detection, mode: Roi["mode"]): string {
   if (d.on_land) return "Land-masked (not a vessel)";
   if (mode === "survey") return "Observed vessel";
+  if (d.match_state === "indeterminate") return "Unresolved vessel";
   if (d.is_dark === null) return "Unfused detection";
   return d.is_dark ? "DARK VESSEL" : "AIS match";
 }
@@ -97,9 +100,24 @@ export default function SceneLayer({
               <>
                 matched: {d.ship_name ?? "unknown"} (MMSI {d.matched_mmsi})
                 <br />
-                {d.match_distance_m?.toFixed(0)} m away
-                {d.match_time_delta_s !== null && <>, {(d.match_time_delta_s / 60).toFixed(0)} min offset</>}
+                {d.match_distance_m?.toFixed(0)} m from its dead-reckoned position
+                {d.match_time_delta_s !== null && (
+                  <>, from a fix {Math.abs(d.match_time_delta_s / 60).toFixed(1)} min away</>
+                )}
               </>
+            )}
+            {/* The margin is what makes a dark call falsifiable. */}
+            {d.is_dark === true && d.dark_margin_m !== null && (
+              <>
+                {d.dark_margin_m.toFixed(0)} m clear of every AIS vessel&rsquo;s
+                dead-reckoned uncertainty
+              </>
+            )}
+            {d.match_state === "indeterminate" && (
+              <em>
+                cannot be matched or ruled out — inside an AIS vessel&rsquo;s
+                dead-reckoning uncertainty, or this scene failed its chance-match check
+              </em>
             )}
           </Popup>
         </CircleMarker>
