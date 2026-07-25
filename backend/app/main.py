@@ -123,13 +123,13 @@ VESSELS_QUERY = text(
         m.callsign
     FROM ais_positions p
     LEFT JOIN ship_metadata m ON m.mmsi = p.mmsi
-    WHERE p.time <= :at
-      AND p.time > :at - make_interval(mins => :minutes)
+    WHERE p.time BETWEEN CAST(:at AS timestamptz) - make_interval(mins => :minutes)
+                     AND CAST(:at AS timestamptz) + make_interval(mins => :minutes)
       AND ST_Within(
           p.location::geometry,
           ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
       )
-    ORDER BY p.mmsi, p.time DESC
+    ORDER BY p.mmsi, abs(EXTRACT(EPOCH FROM (p.time - CAST(:at AS timestamptz))))
     """
 )
 
