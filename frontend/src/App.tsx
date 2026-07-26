@@ -6,7 +6,7 @@ import MapView from "./components/MapView";
 import ScenePanel from "./components/ScenePanel";
 import SceneLayer from "./components/SceneLayer";
 import VesselLayer from "./components/VesselLayer";
-import type { Health, Roi, Scene } from "./types";
+import type { Detection, Health, Roi, Scene } from "./types";
 
 export default function App() {
   // Default to the ROI with reliable AISStream coverage so the demo lands on live data
@@ -16,6 +16,11 @@ export default function App() {
   // Off by default: masked hits are rocks and shore structures. On, they are the
   // only way to see whether LAND_MASK_BUFFER_M has started eating berthed ships.
   const [showLandMasked, setShowLandMasked] = useState(false);
+  // On by default: small hulls (fishing, etc.) are below what 10 m/px SAR
+  // resolves, so showing them next to detections reads as missed detections
+  // rather than a sensor limit. Only governs the live/no-scene view — once a
+  // scene is selected, VesselLayer narrows to matched vessels instead.
+  const [hideSmallVessels, setHideSmallVessels] = useState(true);
 
   const rois = useQuery({ queryKey: ["rois"], queryFn: () => apiGet<Roi[]>("/rois") });
 
@@ -36,6 +41,28 @@ export default function App() {
   const selectedScene = scenes.data?.find((s) => s.id === selectedSceneId) ?? null;
   // The scene IS the time control: selecting one freezes vessels at its acquisition time.
   const at = selectedScene?.sensed_at ?? null;
+
+  const detections = useQuery({
+    queryKey: ["detections", selectedScene?.id, selectedScene?.status, showLandMasked],
+    queryFn: () =>
+      apiGet<Detection[]>(
+        `/scenes/${selectedScene!.id}/detections${showLandMasked ? "?include_land=true" : ""}`,
+      ),
+    enabled: selectedScene?.status === "processed",
+  });
+
+  // null = live view (no scene selected): VesselLayer falls back to the size
+  // filter. Non-null = only these vessels pair with a detection in the
+  // selected scene, so every visible AIS dot has a visible paired detection.
+  const matchedMmsis = roiObj?.mode === "fused" && selectedScene?.status === "processed"
+    ? new Set(
+        (detections.data ?? [])
+          .map((d) =>
+            d.matched_mmsi ?? (d.match_state === "indeterminate" ? d.candidate_mmsi : null),
+          )
+          .filter((mmsi): mmsi is number => mmsi !== null),
+      )
+    : null;
 
   const changeRoi = (name: string) => {
     setRoi(name);
@@ -77,6 +104,17 @@ export default function App() {
             <>vessels: live (15 s refresh)</>
           )}
         </p>
+
+        {!matchedMmsis && (
+          <label className="small-vessel-control">
+            <input
+              type="checkbox"
+              checked={hideSmallVessels}
+              onChange={(e) => setHideSmallVessels(e.target.checked)}
+            />{" "}
+            Hide small vessels (fishing, etc.)
+          </label>
+        )}
 
         <ScenePanel
           roi={roi}
@@ -130,13 +168,19 @@ export default function App() {
       </aside>
 
       <MapView roi={roiObj}>
-        <VesselLayer key={roi} roi={roi} at={at} />
+        <VesselLayer
+          key={roi}
+          roi={roi}
+          at={at}
+          hideSmallVessels={hideSmallVessels}
+          matchedMmsis={matchedMmsis}
+        />
         {selectedScene && roiObj && (
           <SceneLayer
             scene={selectedScene}
             mode={roiObj.mode}
             overlayOpacity={overlayOpacity}
-            showLandMasked={showLandMasked}
+            detections={detections.data ?? []}
           />
         )}
       </MapView>

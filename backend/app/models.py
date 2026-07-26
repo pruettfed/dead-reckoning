@@ -125,6 +125,15 @@ class SarDetection(Base):
     # unproven claim is not a false one.
     is_dark: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     matched_mmsi: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Nearest AIS vessel by envelope-relative margin (not raw distance — a
+    # fast vessel's larger envelope_m can win this ordering while being
+    # farther away in metres) when a detection sits inside that vessel's
+    # uncertainty envelope but lost the one-to-one assignment. NULL for
+    # matched (which already has matched_mmsi), for dark, and for the
+    # indeterminate-by-noise-floor case (margin_m > 0 but not discriminating)
+    # where the "nearest" vessel has no real spatial relationship to the
+    # detection.
+    candidate_mmsi: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     match_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Signed age of the AIS fix dead-reckoned from (fix − acquisition).
     match_time_delta_s: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -5,7 +5,33 @@ import { CircleMarker, Polyline, Popup } from "react-leaflet";
 import { apiGet } from "../api";
 import type { TrackPoint, Vessel } from "../types";
 
-export default function VesselLayer({ roi, at }: { roi: string; at: string | null }) {
+// Same resolvable-hull range as LARGE_VESSEL_TYPE_MIN/MAX in
+// backend/app/fusion.py: passenger (60-69), cargo (70-79), tanker (80-89) —
+// the hulls 10 m/px resolves. Unknown ship_type is treated as small.
+const LARGE_VESSEL_TYPE_MIN = 60;
+const LARGE_VESSEL_TYPE_MAX = 89;
+
+function isLargeVessel(v: Vessel): boolean {
+  return (
+    v.ship_type !== null &&
+    v.ship_type >= LARGE_VESSEL_TYPE_MIN &&
+    v.ship_type <= LARGE_VESSEL_TYPE_MAX
+  );
+}
+
+export default function VesselLayer({
+  roi,
+  at,
+  hideSmallVessels,
+  matchedMmsis,
+}: {
+  roi: string;
+  at: string | null;
+  hideSmallVessels: boolean;
+  // Non-null once a scene is selected: takes over from hideSmallVessels so
+  // every visible AIS marker pairs with a visible SAR detection.
+  matchedMmsis: Set<number> | null;
+}) {
   const [trackMmsi, setTrackMmsi] = useState<number | null>(null);
 
   const vessels = useQuery({
@@ -20,9 +46,13 @@ export default function VesselLayer({ roi, at }: { roi: string; at: string | nul
     enabled: trackMmsi !== null,
   });
 
+  const visible = (vessels.data ?? []).filter((v) =>
+    matchedMmsis ? matchedMmsis.has(v.mmsi) : !hideSmallVessels || isLargeVessel(v),
+  );
+
   return (
     <>
-      {(vessels.data ?? []).map((v) => (
+      {visible.map((v) => (
         <CircleMarker
           key={v.mmsi}
           center={[v.lat, v.lon]}

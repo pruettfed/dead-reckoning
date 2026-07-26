@@ -88,6 +88,10 @@ export type Detection = {
   matched_mmsi: number | null;
   match_distance_m: number | null; // from the vessel's dead-reckoned position
   match_time_delta_s: number | null; // signed age of the AIS fix used
+  // Nearest AIS vessel by dead-reckoned position when the detection is
+  // indeterminate (neither confidently matched nor ruled dark); null
+  // otherwise.
+  candidate_mmsi: number | null;
   // Metres outside the nearest vessel's uncertainty envelope; negative = inside.
   dark_margin_m: number | null;
   ship_name: string | null;
