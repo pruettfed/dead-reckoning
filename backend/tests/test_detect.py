@@ -75,7 +75,7 @@ class TestMergeDetections:
 class TestBucketConfidence:
     @pytest.mark.parametrize(
         "conf,bucket",
-        [(0.95, "high"), (0.7, "high"), (0.699, "medium"), (0.4, "medium"), (0.399, "low"), (0.1, "low")],
+        [(0.95, "high"), (0.7, "high"), (0.649, "medium"), (0.4, "medium"), (0.249, "low"), (0.1, "low")],
     )
     def test_boundaries(self, conf, bucket):
         assert bucket_confidence(conf) == bucket
