@@ -155,9 +155,9 @@ async def _upsert_ship_metadata(meta: ParsedShipMetadata) -> None:
                     INSERT INTO ship_metadata (mmsi, ship_name, ship_type, callsign, last_updated)
                     VALUES (:mmsi, :ship_name, :ship_type, :callsign, :last_updated)
                     ON CONFLICT (mmsi) DO UPDATE
-                        SET ship_name    = EXCLUDED.ship_name,
-                            ship_type    = EXCLUDED.ship_type,
-                            callsign     = EXCLUDED.callsign,
+                        SET ship_name    = COALESCE(EXCLUDED.ship_name, ship_metadata.ship_name),
+                            ship_type    = COALESCE(EXCLUDED.ship_type, ship_metadata.ship_type),
+                            callsign     = COALESCE(EXCLUDED.callsign, ship_metadata.callsign),
                             last_updated = EXCLUDED.last_updated
                         WHERE EXCLUDED.last_updated > ship_metadata.last_updated
                     """
