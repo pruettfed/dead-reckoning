@@ -23,10 +23,14 @@ export default function VesselLayer({
   roi,
   at,
   hideSmallVessels,
+  matchedMmsis,
 }: {
   roi: string;
   at: string | null;
   hideSmallVessels: boolean;
+  // Non-null once a scene is selected: takes over from hideSmallVessels so
+  // every visible AIS marker pairs with a visible SAR detection.
+  matchedMmsis: Set<number> | null;
 }) {
   const [trackMmsi, setTrackMmsi] = useState<number | null>(null);
 
@@ -42,7 +46,9 @@ export default function VesselLayer({
     enabled: trackMmsi !== null,
   });
 
-  const visible = (vessels.data ?? []).filter((v) => !hideSmallVessels || isLargeVessel(v));
+  const visible = (vessels.data ?? []).filter((v) =>
+    matchedMmsis ? matchedMmsis.has(v.mmsi) : !hideSmallVessels || isLargeVessel(v),
+  );
 
   return (
     <>

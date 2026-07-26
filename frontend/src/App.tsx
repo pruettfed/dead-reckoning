@@ -51,6 +51,19 @@ export default function App() {
     enabled: selectedScene?.status === "processed",
   });
 
+  // null = live view (no scene selected): VesselLayer falls back to the size
+  // filter. Non-null = only these vessels pair with a detection in the
+  // selected scene, so every visible AIS dot has a visible paired detection.
+  const matchedMmsis = selectedScene
+    ? new Set(
+        (detections.data ?? [])
+          .map((d) =>
+            d.matched_mmsi ?? (d.match_state === "indeterminate" ? d.candidate_mmsi : null),
+          )
+          .filter((mmsi): mmsi is number => mmsi !== null),
+      )
+    : null;
+
   const changeRoi = (name: string) => {
     setRoi(name);
     setSelectedSceneId(null);
@@ -153,7 +166,13 @@ export default function App() {
       </aside>
 
       <MapView roi={roiObj}>
-        <VesselLayer key={roi} roi={roi} at={at} hideSmallVessels={hideSmallVessels} />
+        <VesselLayer
+          key={roi}
+          roi={roi}
+          at={at}
+          hideSmallVessels={hideSmallVessels}
+          matchedMmsis={matchedMmsis}
+        />
         {selectedScene && roiObj && (
           <SceneLayer
             scene={selectedScene}
