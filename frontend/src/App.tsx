@@ -16,6 +16,11 @@ export default function App() {
   // Off by default: masked hits are rocks and shore structures. On, they are the
   // only way to see whether LAND_MASK_BUFFER_M has started eating berthed ships.
   const [showLandMasked, setShowLandMasked] = useState(false);
+  // On by default: small hulls (fishing, etc.) are below what 10 m/px SAR
+  // resolves, so showing them next to detections reads as missed detections
+  // rather than a sensor limit. Only governs the live/no-scene view — once a
+  // scene is selected, VesselLayer narrows to matched vessels instead (Task 4).
+  const [hideSmallVessels, setHideSmallVessels] = useState(true);
 
   const rois = useQuery({ queryKey: ["rois"], queryFn: () => apiGet<Roi[]>("/rois") });
 
@@ -87,6 +92,15 @@ export default function App() {
           )}
         </p>
 
+        <label className="small-vessel-control">
+          <input
+            type="checkbox"
+            checked={hideSmallVessels}
+            onChange={(e) => setHideSmallVessels(e.target.checked)}
+          />{" "}
+          Hide small vessels (fishing, etc.)
+        </label>
+
         <ScenePanel
           roi={roi}
           scenes={scenes.data ?? []}
@@ -139,7 +153,7 @@ export default function App() {
       </aside>
 
       <MapView roi={roiObj}>
-        <VesselLayer key={roi} roi={roi} at={at} />
+        <VesselLayer key={roi} roi={roi} at={at} hideSmallVessels={hideSmallVessels} />
         {selectedScene && roiObj && (
           <SceneLayer
             scene={selectedScene}
