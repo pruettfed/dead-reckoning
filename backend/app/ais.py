@@ -288,5 +288,11 @@ def build_subscribe_message(api_key: str, rois: Iterable[ROI]) -> dict[str, Any]
     return {
         "APIKey": api_key,
         "BoundingBoxes": boxes,
-        "FilterMessageTypes": ["PositionReport", "ShipStaticData"],
+        "FilterMessageTypes": [
+            "PositionReport",
+            "ShipStaticData",
+            "StandardClassBPositionReport",
+            "ExtendedClassBPositionReport",
+            "StaticDataReport",
+        ],
     }

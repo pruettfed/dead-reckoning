@@ -262,7 +262,13 @@ def test_subscribe_message_uses_aisstream_corner_order():
     assert sub == {
         "APIKey": "KEY123",
         "BoundingBoxes": [[[0.95, 103.45], [1.40, 104.20]]],
-        "FilterMessageTypes": ["PositionReport", "ShipStaticData"],
+        "FilterMessageTypes": [
+            "PositionReport",
+            "ShipStaticData",
+            "StandardClassBPositionReport",
+            "ExtendedClassBPositionReport",
+            "StaticDataReport",
+        ],
     }
 
 
@@ -272,7 +278,13 @@ def test_subscribe_message_includes_all_rois():
 
     sub = build_subscribe_message("KEY123", ROIS.values())
     assert sub["APIKey"] == "KEY123"
-    assert sub["FilterMessageTypes"] == ["PositionReport", "ShipStaticData"]
+    assert sub["FilterMessageTypes"] == [
+        "PositionReport",
+        "ShipStaticData",
+        "StandardClassBPositionReport",
+        "ExtendedClassBPositionReport",
+        "StaticDataReport",
+    ]
     assert len(sub["BoundingBoxes"]) == len(ROIS)
     # Each box is [[lat, lon], [lat, lon]] — verify lat/lon order for one entry
     singapore = next(b for b in sub["BoundingBoxes"] if b == [[0.95, 103.45], [1.40, 104.20]])
