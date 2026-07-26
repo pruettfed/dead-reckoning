@@ -54,7 +54,7 @@ export default function App() {
   // null = live view (no scene selected): VesselLayer falls back to the size
   // filter. Non-null = only these vessels pair with a detection in the
   // selected scene, so every visible AIS dot has a visible paired detection.
-  const matchedMmsis = selectedScene
+  const matchedMmsis = selectedScene?.status === "processed"
     ? new Set(
         (detections.data ?? [])
           .map((d) =>
