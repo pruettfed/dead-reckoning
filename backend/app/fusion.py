@@ -174,10 +174,10 @@ MATCH_CANDIDATES = text(
 DARK_MARGINS = text(
     f"""
     WITH {DR_CTE}
-    SELECT d.id AS det_id, x.margin_m
+    SELECT d.id AS det_id, x.margin_m, x.mmsi AS candidate_mmsi
     FROM sar_detections d
     LEFT JOIN LATERAL (
-        SELECT ST_Distance(dr.loc, d.location) - dr.envelope_m AS margin_m
+        SELECT ST_Distance(dr.loc, d.location) - dr.envelope_m AS margin_m, dr.mmsi
         FROM dr
         ORDER BY ST_Distance(dr.loc, d.location) - dr.envelope_m
         LIMIT 1
@@ -249,7 +249,8 @@ APPLY_MATCH = text(
         matched_mmsi = :mmsi,
         match_distance_m = :distance_m,
         match_time_delta_s = :time_delta_s,
-        dark_margin_m = :margin_m
+        dark_margin_m = :margin_m,
+        candidate_mmsi = :candidate_mmsi
     WHERE id = :det_id
     """
 )
@@ -258,7 +259,8 @@ RESET_MATCH = text(
     """
     UPDATE sar_detections
     SET match_state = NULL, is_dark = NULL, matched_mmsi = NULL,
-        match_distance_m = NULL, match_time_delta_s = NULL, dark_margin_m = NULL
+        match_distance_m = NULL, match_time_delta_s = NULL, dark_margin_m = NULL,
+        candidate_mmsi = NULL
     WHERE scene_id = :scene_id
     """
 )
@@ -407,7 +409,7 @@ async def fuse_scene(
     ]
     assigned = assign_one_to_one(candidates)
     margins = {
-        r["det_id"]: r["margin_m"]
+        r["det_id"]: (r["margin_m"], r["candidate_mmsi"])
         for r in (await session.execute(DARK_MARGINS, dr_params)).mappings()
     }
 
@@ -417,7 +419,7 @@ async def fuse_scene(
     # Unmeasurable is not good: with no probes, dark calls are withheld.
     discriminating = chance is not None and chance <= settings.max_chance_match_rate
 
-    for det_id, margin_m in margins.items():
+    for det_id, (margin_m, nearest_mmsi) in margins.items():
         state = classify(det_id, assigned, margin_m, discriminating)
         match = assigned.get(det_id)
         await session.execute(
@@ -429,6 +431,7 @@ async def fuse_scene(
                 "distance_m": match.distance_m if match else None,
                 "time_delta_s": match.time_delta_s if match else None,
                 "margin_m": margin_m,
+                "candidate_mmsi": nearest_mmsi if state == "indeterminate" else None,
             },
         )
 

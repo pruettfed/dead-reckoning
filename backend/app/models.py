@@ -125,6 +125,11 @@ class SarDetection(Base):
     # unproven claim is not a false one.
     is_dark: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     matched_mmsi: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Nearest AIS vessel by dead-reckoned position when a detection is
+    # indeterminate (neither confidently matched nor ruled dark). NULL for
+    # matched (which already has matched_mmsi) and dark (a candidate there
+    # would imply a pairing that isn't real).
+    candidate_mmsi: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     match_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Signed age of the AIS fix dead-reckoned from (fix − acquisition).
     match_time_delta_s: Mapped[float | None] = mapped_column(Float, nullable=True)

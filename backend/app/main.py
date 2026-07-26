@@ -308,6 +308,7 @@ DETECTIONS_QUERY = text(
            ST_X(d.location::geometry) AS lon,
            d.confidence, d.confidence_bucket, d.is_dark, d.match_state, d.on_land,
            d.matched_mmsi, d.match_distance_m, d.match_time_delta_s, d.dark_margin_m,
+           d.candidate_mmsi,
            m.ship_name, m.ship_type, m.callsign
     FROM sar_detections d
     LEFT JOIN ship_metadata m ON m.mmsi = d.matched_mmsi
