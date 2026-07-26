@@ -6,7 +6,7 @@ import MapView from "./components/MapView";
 import ScenePanel from "./components/ScenePanel";
 import SceneLayer from "./components/SceneLayer";
 import VesselLayer from "./components/VesselLayer";
-import type { Health, Roi, Scene } from "./types";
+import type { Detection, Health, Roi, Scene } from "./types";
 
 export default function App() {
   // Default to the ROI with reliable AISStream coverage so the demo lands on live data
@@ -36,6 +36,15 @@ export default function App() {
   const selectedScene = scenes.data?.find((s) => s.id === selectedSceneId) ?? null;
   // The scene IS the time control: selecting one freezes vessels at its acquisition time.
   const at = selectedScene?.sensed_at ?? null;
+
+  const detections = useQuery({
+    queryKey: ["detections", selectedScene?.id, selectedScene?.status, showLandMasked],
+    queryFn: () =>
+      apiGet<Detection[]>(
+        `/scenes/${selectedScene!.id}/detections${showLandMasked ? "?include_land=true" : ""}`,
+      ),
+    enabled: selectedScene?.status === "processed",
+  });
 
   const changeRoi = (name: string) => {
     setRoi(name);
@@ -136,7 +145,7 @@ export default function App() {
             scene={selectedScene}
             mode={roiObj.mode}
             overlayOpacity={overlayOpacity}
-            showLandMasked={showLandMasked}
+            detections={detections.data ?? []}
           />
         )}
       </MapView>

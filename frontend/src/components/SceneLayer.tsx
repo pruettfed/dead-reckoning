@@ -1,7 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { CircleMarker, ImageOverlay, Polygon, Popup } from "react-leaflet";
 
-import { apiGet } from "../api";
 import type { Bbox, Detection, Footprint, Roi, Scene } from "../types";
 
 function toLatLng(ring: number[][]): [number, number][] {
@@ -45,22 +43,13 @@ export default function SceneLayer({
   scene,
   mode,
   overlayOpacity,
-  showLandMasked,
+  detections,
 }: {
   scene: Scene;
   mode: Roi["mode"];
   overlayOpacity: number;
-  showLandMasked: boolean;
+  detections: Detection[];
 }) {
-  const detections = useQuery({
-    queryKey: ["detections", scene.id, scene.status, showLandMasked],
-    queryFn: () =>
-      apiGet<Detection[]>(
-        `/scenes/${scene.id}/detections${showLandMasked ? "?include_land=true" : ""}`,
-      ),
-    enabled: scene.status === "processed",
-  });
-
   return (
     <>
       {scene.has_overview && scene.imaged_bbox && (
@@ -78,7 +67,7 @@ export default function SceneLayer({
         positions={footprintPositions(scene.footprint)}
         pathOptions={{ color: "#64748b", weight: 1, fillOpacity: 0.05 }}
       />
-      {(detections.data ?? []).map((d) => (
+      {detections.map((d) => (
         <CircleMarker
           key={d.id}
           center={[d.lat, d.lon]}
