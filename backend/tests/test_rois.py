@@ -41,17 +41,20 @@ def test_bboxes_are_well_formed(name: str):
         assert -90 <= min_lat < max_lat <= 90
     assert roi.name == name
     assert roi.passes_per_month > 0
+    assert roi.blurb.strip() == roi.blurb and len(roi.blurb) > 20
 
 
 @pytest.mark.parametrize("name", list(ROIS))
-def test_sar_bbox_within_ais_bbox(name: str):
-    """Fusion matches SAR detections against AIS, so the imaged area must be
-    inside the subscribed area or detections have no AIS to match against."""
+def test_sar_bbox_strictly_within_ais_bbox(name: str):
+    """ais_bbox must be strictly wider than sar_bbox on every side, not just
+    containing it. AIS is free so it should always have slack; a shared
+    edge (or sar_bbox == ais_bbox) means a detection right at the boundary
+    has no AIS buffer around it to match against."""
     roi = ROIS[name]
     a_min_lon, a_min_lat, a_max_lon, a_max_lat = roi.ais_bbox
     s_min_lon, s_min_lat, s_max_lon, s_max_lat = roi.sar_bbox
-    assert a_min_lon <= s_min_lon and s_max_lon <= a_max_lon
-    assert a_min_lat <= s_min_lat and s_max_lat <= a_max_lat
+    assert a_min_lon < s_min_lon and s_max_lon < a_max_lon
+    assert a_min_lat < s_min_lat and s_max_lat < a_max_lat
 
 
 def test_monthly_pu_within_budget():

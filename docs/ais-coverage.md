@@ -79,6 +79,49 @@ transits ran dark through 2026, a per-pass count of what radar actually sees is
 the product; there is no AIS baseline to subtract, and pretending otherwise
 would be the dishonest version.
 
+## AIS coverage must be spatially uniform, not just present (found 2026-07-26)
+
+The verification method above only ever checked *aggregate* vessel count in
+a candidate box — "does AIS exist somewhere in here" — which is not the same
+question as "is a `fused` verdict honest everywhere in this box." A live
+review of `bosphorus_marmara` found detections reading "dark" almost
+entirely on the east side of the box. Binning AIS positions into 5 buckets
+along each axis showed why: longitude density collapsed from 195 → 271 →
+47 → 3 vessels moving west→east across the box, while latitude bins stayed
+smooth (66/117/140/144/127) — a real Istanbul-receiver range cliff, not
+noise. The `sar_bbox` extended to 29.45°E, well past the ~28.78°E cliff, so
+any detection in the eastern two-thirds of the box was **structurally
+guaranteed** to read dark regardless of whether it actually carried AIS —
+there was no receiver there to catch it either way.
+
+The `MAX_CHANCE_MATCH_RATE` gate (`docs/fusion-rework.md`) does not catch
+this failure mode: it measures the odds of a *coincidental* match on empty
+water, which goes *down* as AIS density drops, so a receiver dead zone
+sails straight through it.
+
+**Fix:** `bosphorus_marmara`'s `sar_bbox` was shrunk to
+`(28.45, 40.72, 28.85, 41.00)` — inside the real coverage boundary. Still
+100% SAR coverage / 15 usable passes/mo, and cheaper as a side effect
+(930 → ~400 PU/mo) since the imaged area shrank.
+
+**New required check** for any `fused` candidate box, alongside the
+aggregate-count probe above — bin AIS positions along both axes and look
+for a bucket that collapses to near-zero while its neighbors don't:
+
+```sql
+with pts as (
+  select width_bucket(ST_X(location::geometry), min_lon, max_lon, 5) as xb,
+         width_bucket(ST_Y(location::geometry), min_lat, max_lat, 5) as yb,
+         mmsi
+  from ais_positions
+  where location && ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat, 4326)
+)
+select xb, count(distinct mmsi) from pts group by xb order by xb;  -- then yb
+```
+
+All 5 other fused regions, and every enlarged 2026-07-26 candidate box, were
+checked with this method — gentle gradients only, no comparable cliff.
+
 ## SAR coverage constrains regions too (measured 2026-07-21)
 
 AIS is not the only thing that can be absent, and the SAR failure mode is
@@ -124,6 +167,10 @@ values that have drifted, and warns on regions with too few usable passes.
 
 ## Why each selected ROI is a dark-vessel story
 
+The canonical, per-region version of this narrative now lives in the `blurb`
+field on each `ROI` in `backend/app/rois.py` (exposed via `GET /api/rois`) —
+covers all 14 regions, fused and survey. Summary:
+
 - **Gulf of Finland** — every Russian shadow-fleet tanker loading at
   Primorsk/Ust-Luga transits this corridor; documented AIS manipulation.
 - **Skagen / Kattegat** — the mandatory Baltic exit chokepoint for that same
@@ -134,8 +181,20 @@ values that have drifted, and warns on regions with too few usable passes.
   of sanctioned crude in the central Mediterranean.
 - **North Taiwan / ECS** — gray-zone activity north of Taiwan, including the
   subsea-cable interference incidents off Keelung; AIS spoofing documented.
-- **Singapore Strait** — densest coverage; the always-works demo region and STS
-  hub in its own right.
+- **Singapore Strait** — densest coverage; the always-works demo region. Its
+  story is weaker-in-kind than the Gulf regions — not a conflict zone, but a
+  documented IMB piracy/armed-robbery hotspot and a waypoint for sanctioned
+  Iran/Venezuela crude STS transfers nearby. Kept as the demo region with
+  that framing stated honestly rather than oversold.
+- **Strait of Hormuz / Gulf of Oman** (`hormuz_strait` + `fujairah_anchorage`
+  + `musandam_stage` + `kharg_island`) — presented as one story across four
+  boxes rather than merged into one, because a literal merge was tested and
+  rejected (median SAR coverage collapses to 36–58% across the combined
+  extent — the sub-areas sit on different swath geometry). `hormuz_strait`
+  is the transit chokepoint itself, `fujairah_anchorage` is where tankers
+  wait or transfer cargo before/after transiting, `kharg_island` is the
+  upstream export terminal, and `musandam_stage` is the queuing area on the
+  peninsula that pinches the strait.
 
 ## Alternative AIS sources considered
 

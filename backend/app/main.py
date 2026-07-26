@@ -69,6 +69,7 @@ async def list_rois() -> list[dict]:
         {
             "name": roi.name,
             "label": roi.label,
+            "blurb": roi.blurb,
             "ais_bbox": list(roi.ais_bbox),
             "sar_bbox": list(roi.sar_bbox),
             "mode": roi.mode,
