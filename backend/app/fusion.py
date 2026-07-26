@@ -431,7 +431,7 @@ async def fuse_scene(
                 "distance_m": match.distance_m if match else None,
                 "time_delta_s": match.time_delta_s if match else None,
                 "margin_m": margin_m,
-                "candidate_mmsi": nearest_mmsi if margin_m is not None and margin_m <= 0 else None,
+                "candidate_mmsi": nearest_mmsi if state == "indeterminate" and margin_m is not None and margin_m <= 0 else None,
             },
         )
 
