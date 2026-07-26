@@ -19,7 +19,7 @@ export default function App() {
   // On by default: small hulls (fishing, etc.) are below what 10 m/px SAR
   // resolves, so showing them next to detections reads as missed detections
   // rather than a sensor limit. Only governs the live/no-scene view — once a
-  // scene is selected, VesselLayer narrows to matched vessels instead (Task 4).
+  // scene is selected, VesselLayer narrows to matched vessels instead.
   const [hideSmallVessels, setHideSmallVessels] = useState(true);
 
   const rois = useQuery({ queryKey: ["rois"], queryFn: () => apiGet<Roi[]>("/rois") });
@@ -54,7 +54,7 @@ export default function App() {
   // null = live view (no scene selected): VesselLayer falls back to the size
   // filter. Non-null = only these vessels pair with a detection in the
   // selected scene, so every visible AIS dot has a visible paired detection.
-  const matchedMmsis = selectedScene?.status === "processed"
+  const matchedMmsis = roiObj?.mode === "fused" && selectedScene?.status === "processed"
     ? new Set(
         (detections.data ?? [])
           .map((d) =>
@@ -105,14 +105,16 @@ export default function App() {
           )}
         </p>
 
-        <label className="small-vessel-control">
-          <input
-            type="checkbox"
-            checked={hideSmallVessels}
-            onChange={(e) => setHideSmallVessels(e.target.checked)}
-          />{" "}
-          Hide small vessels (fishing, etc.)
-        </label>
+        {!matchedMmsis && (
+          <label className="small-vessel-control">
+            <input
+              type="checkbox"
+              checked={hideSmallVessels}
+              onChange={(e) => setHideSmallVessels(e.target.checked)}
+            />{" "}
+            Hide small vessels (fishing, etc.)
+          </label>
+        )}
 
         <ScenePanel
           roi={roi}

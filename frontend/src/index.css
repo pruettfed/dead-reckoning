@@ -59,7 +59,9 @@ body,
   line-height: 1.4;
 }
 
-.opacity-control {
+.opacity-control,
+.land-mask-control,
+.small-vessel-control {
   display: block;
   margin: 0.5rem 0;
   font-size: 0.85rem;
@@ -67,12 +69,6 @@ body,
 
 .opacity-control input {
   width: 100%;
-}
-
-.land-mask-control {
-  display: block;
-  margin: 0.5rem 0;
-  font-size: 0.85rem;
 }
 
 .scene-list,

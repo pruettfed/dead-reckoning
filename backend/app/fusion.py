@@ -124,6 +124,7 @@ ADD_FUSION_COLUMNS = (
     text("ALTER TABLE sar_scenes ADD COLUMN IF NOT EXISTS chance_match_rate DOUBLE PRECISION"),
     text("ALTER TABLE sar_scenes ADD COLUMN IF NOT EXISTS recall_large_total INTEGER"),
     text("ALTER TABLE sar_scenes ADD COLUMN IF NOT EXISTS recall_large_detected INTEGER"),
+    text("ALTER TABLE sar_detections ADD COLUMN IF NOT EXISTS candidate_mmsi BIGINT"),
 )
 
 # Every vessel's nearest-in-time fix projected to the acquisition instant. Shared
