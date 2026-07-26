@@ -94,6 +94,46 @@ def parse_position_report(msg: dict[str, Any]) -> ParsedPosition | None:
     )
 
 
+def parse_class_b_position_report(msg: dict[str, Any]) -> ParsedPosition | None:
+    """Decode an AISStream StandardClassBPositionReport (18) or
+    ExtendedClassBPositionReport (19).
+
+    Both carry the same position/speed/course fields as Class A, keyed under
+    their own MessageType name instead of "PositionReport". Neither carries
+    NavigationalStatus — Class B transponders don't report it — so
+    `nav_status` is always None here, not a parsing gap.
+    """
+    msg_type = msg.get("MessageType")
+    if msg_type not in ("StandardClassBPositionReport", "ExtendedClassBPositionReport"):
+        return None
+
+    meta = msg.get("MetaData") or {}
+    report = ((msg.get("Message") or {}).get(msg_type)) or {}
+
+    mmsi = meta.get("MMSI") or report.get("UserID")
+    lat = meta.get("latitude")
+    lon = meta.get("longitude")
+    raw_time = meta.get("time_utc")
+    if mmsi is None or lat is None or lon is None or not raw_time:
+        return None
+
+    try:
+        when = _parse_aisstream_time(raw_time)
+    except ValueError:
+        return None
+
+    return ParsedPosition(
+        mmsi=int(mmsi),
+        time=when,
+        lat=float(lat),
+        lon=float(lon),
+        sog=_optional_float(report.get("Sog")),
+        cog=_optional_float(report.get("Cog")),
+        true_heading=_optional_int(report.get("TrueHeading")),
+        nav_status=None,
+    )
+
+
 def parse_ship_static_data(msg: dict[str, Any]) -> ParsedShipMetadata | None:
     """Decode an AISStream ShipStaticData envelope.
 

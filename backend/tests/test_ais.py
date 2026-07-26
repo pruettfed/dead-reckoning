@@ -2,7 +2,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.ais import build_subscribe_message, parse_position_report, parse_ship_static_data
+from app.ais import (
+    build_subscribe_message,
+    nav_status_label,
+    parse_class_b_position_report,
+    parse_class_b_static_data,
+    parse_position_report,
+    parse_ship_static_data,
+)
 from app.rois import get_roi
 
 
@@ -86,6 +93,81 @@ def test_optional_fields_absent_yields_none_values():
     assert pos.cog is None
     assert pos.true_heading is None
     assert pos.nav_status is None
+
+
+# ── Class B position report parser ─────────────────────────────────────────
+
+SAMPLE_CLASS_B_STANDARD = {
+    "MessageType": "StandardClassBPositionReport",
+    "MetaData": {
+        "MMSI": 244770688,
+        "ShipName": "",
+        "latitude": 51.85,
+        "longitude": 4.25,
+        "time_utc": "2024-08-30 13:24:32.000000000 +0000 UTC",
+    },
+    "Message": {
+        "StandardClassBPositionReport": {
+            "UserID": 244770688,
+            "Sog": 5.4,
+            "Cog": 88.2,
+            "TrueHeading": 90,
+            "Latitude": 51.85,
+            "Longitude": 4.25,
+        }
+    },
+}
+
+SAMPLE_CLASS_B_EXTENDED = {
+    "MessageType": "ExtendedClassBPositionReport",
+    "MetaData": {
+        "MMSI": 244770689,
+        "ShipName": "LITTLE SKIFF",
+        "latitude": 51.86,
+        "longitude": 4.26,
+        "time_utc": "2024-08-30 13:24:33.000000000 +0000 UTC",
+    },
+    "Message": {
+        "ExtendedClassBPositionReport": {
+            "UserID": 244770689,
+            "Sog": 3.1,
+            "Cog": 200.0,
+            "TrueHeading": 199,
+            "Name": "LITTLE SKIFF",
+            "Type": 37,
+        }
+    },
+}
+
+
+def test_parses_standard_class_b_position_report():
+    pos = parse_class_b_position_report(SAMPLE_CLASS_B_STANDARD)
+    assert pos is not None
+    assert pos.mmsi == 244770688
+    assert (pos.lat, pos.lon) == (51.85, 4.25)
+    assert pos.sog == 5.4
+    assert pos.cog == 88.2
+    assert pos.true_heading == 90
+    assert pos.nav_status is None  # Class B never reports navigational status
+
+
+def test_parses_extended_class_b_position_report():
+    pos = parse_class_b_position_report(SAMPLE_CLASS_B_EXTENDED)
+    assert pos is not None
+    assert pos.mmsi == 244770689
+    assert pos.sog == 3.1
+    assert pos.cog == 200.0
+    assert pos.nav_status is None
+
+
+def test_class_b_position_ignores_other_message_types():
+    assert parse_class_b_position_report(SAMPLE_POSITION_REPORT) is None
+
+
+def test_class_b_position_missing_required_field_returns_none():
+    meta = {**SAMPLE_CLASS_B_STANDARD["MetaData"], "latitude": None}
+    msg = {**SAMPLE_CLASS_B_STANDARD, "MetaData": meta}
+    assert parse_class_b_position_report(msg) is None
 
 
 def test_subscribe_message_uses_aisstream_corner_order():
