@@ -351,3 +351,24 @@ def test_ship_static_name_falls_back_to_metadata():
     meta = parse_ship_static_data(msg)
     assert meta is not None
     assert meta.ship_name == "SEA SPARKLE"
+
+
+# ── Navigational status label ──────────────────────────────────────────────
+
+def test_nav_status_label_known_codes():
+    assert nav_status_label(0) == "under way using engine"
+    assert nav_status_label(1) == "at anchor"
+    assert nav_status_label(5) == "moored"
+    assert nav_status_label(7) == "engaged in fishing"
+
+
+def test_nav_status_label_not_available_is_none():
+    assert nav_status_label(15) is None
+
+
+def test_nav_status_label_none_is_none():
+    assert nav_status_label(None) is None
+
+
+def test_nav_status_label_reserved_code_is_none():
+    assert nav_status_label(12) is None

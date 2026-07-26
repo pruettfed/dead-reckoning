@@ -48,6 +48,30 @@ _AISSTREAM_TIME = re.compile(
 )
 
 
+# ITU-R M.1371 navigational status (AIS message types 1/2/3 field). Codes
+# 9-13 are reserved/special-craft, 14 is AIS-SART/MOB/EPIRB, 15 is the
+# transponder's own "not available" — none of those are a meaningful status
+# to show a user, so they fall through to None same as an absent value.
+NAV_STATUS_LABELS: dict[int, str] = {
+    0: "under way using engine",
+    1: "at anchor",
+    2: "not under command",
+    3: "restricted manoeuvrability",
+    4: "constrained by draught",
+    5: "moored",
+    6: "aground",
+    7: "engaged in fishing",
+    8: "under way sailing",
+}
+
+
+def nav_status_label(code: int | None) -> str | None:
+    """Human label for an ITU-R M.1371 navigational status code, or None."""
+    if code is None:
+        return None
+    return NAV_STATUS_LABELS.get(code)
+
+
 def _parse_aisstream_time(raw: str) -> datetime:
     """Parse AISStream's Go-formatted UTC timestamps."""
     m = _AISSTREAM_TIME.match(raw)
