@@ -170,6 +170,92 @@ def test_class_b_position_missing_required_field_returns_none():
     assert parse_class_b_position_report(msg) is None
 
 
+# ── Class B static data parser ─────────────────────────────────────────────
+
+SAMPLE_STATIC_DATA_REPORT_PART_A = {
+    "MessageType": "StaticDataReport",
+    "MetaData": {
+        "MMSI": 244770689,
+        "ShipName": "LITTLE SKIFF",
+        "time_utc": "2024-08-30 13:24:34.000000000 +0000 UTC",
+    },
+    "Message": {
+        "StaticDataReport": {
+            "UserID": 244770689,
+            "PartNumber": False,
+            "ReportA": {"Name": "LITTLE SKIFF", "Valid": True},
+        }
+    },
+}
+
+SAMPLE_STATIC_DATA_REPORT_PART_B = {
+    "MessageType": "StaticDataReport",
+    "MetaData": {
+        "MMSI": 244770689,
+        "time_utc": "2024-08-30 13:24:35.000000000 +0000 UTC",
+    },
+    "Message": {
+        "StaticDataReport": {
+            "UserID": 244770689,
+            "PartNumber": True,
+            "ReportB": {"ShipType": 37, "CallSign": "PD1234", "Valid": True},
+        }
+    },
+}
+
+
+def test_class_b_static_from_extended_position_report():
+    meta = parse_class_b_static_data(SAMPLE_CLASS_B_EXTENDED)
+    assert meta is not None
+    assert meta.mmsi == 244770689
+    assert meta.ship_name == "LITTLE SKIFF"
+    assert meta.ship_type == 37
+    assert meta.callsign is None
+
+
+def test_static_data_report_part_a_yields_name_only():
+    meta = parse_class_b_static_data(SAMPLE_STATIC_DATA_REPORT_PART_A)
+    assert meta is not None
+    assert meta.mmsi == 244770689
+    assert meta.ship_name == "LITTLE SKIFF"
+    assert meta.ship_type is None
+    assert meta.callsign is None
+
+
+def test_static_data_report_part_b_yields_type_and_callsign_only():
+    meta = parse_class_b_static_data(SAMPLE_STATIC_DATA_REPORT_PART_B)
+    assert meta is not None
+    assert meta.mmsi == 244770689
+    assert meta.ship_name is None
+    assert meta.ship_type == 37
+    assert meta.callsign == "PD1234"
+
+
+def test_static_data_report_part_number_as_int():
+    """AISStream may send PartNumber as 0/1 rather than False/True."""
+    inner = {**SAMPLE_STATIC_DATA_REPORT_PART_B["Message"]["StaticDataReport"], "PartNumber": 1}
+    msg = {**SAMPLE_STATIC_DATA_REPORT_PART_B, "Message": {"StaticDataReport": inner}}
+    meta = parse_class_b_static_data(msg)
+    assert meta is not None
+    assert meta.ship_type == 37
+
+
+def test_class_b_static_data_missing_mmsi_returns_none():
+    meta_block = {**SAMPLE_STATIC_DATA_REPORT_PART_A["MetaData"], "MMSI": None}
+    inner = {**SAMPLE_STATIC_DATA_REPORT_PART_A["Message"]["StaticDataReport"]}
+    inner.pop("UserID", None)
+    msg = {
+        **SAMPLE_STATIC_DATA_REPORT_PART_A,
+        "MetaData": meta_block,
+        "Message": {"StaticDataReport": inner},
+    }
+    assert parse_class_b_static_data(msg) is None
+
+
+def test_class_b_static_data_ignores_other_message_types():
+    assert parse_class_b_static_data(SAMPLE_CLASS_B_STANDARD) is None
+
+
 def test_subscribe_message_uses_aisstream_corner_order():
     """AISStream wants [[SW lat, SW lon], [NE lat, NE lon]] — lat-first, GeoJSON-flipped."""
     sub = build_subscribe_message("KEY123", [get_roi("singapore_strait")])

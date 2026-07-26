@@ -134,6 +134,69 @@ def parse_class_b_position_report(msg: dict[str, Any]) -> ParsedPosition | None:
     )
 
 
+def parse_class_b_static_data(msg: dict[str, Any]) -> ParsedShipMetadata | None:
+    """Decode static/identity fields for a Class B vessel.
+
+    Two sources: ExtendedClassBPositionReport (19) carries Name/Type inline
+    alongside position; StaticDataReport (24) is genuinely two separate
+    messages — Part A (name only) and Part B (type/callsign only), never both
+    at once. Each call returns only the fields that message actually carries;
+    the rest are None (the caller's upsert must not let that clobber fields a
+    previous message already supplied — see ingest.py's COALESCE fix).
+    """
+    msg_type = msg.get("MessageType")
+    meta = msg.get("MetaData") or {}
+    raw_time = meta.get("time_utc")
+    if not raw_time:
+        return None
+    try:
+        when = _parse_aisstream_time(raw_time)
+    except ValueError:
+        return None
+
+    if msg_type == "ExtendedClassBPositionReport":
+        report = (msg.get("Message") or {}).get("ExtendedClassBPositionReport") or {}
+        mmsi = meta.get("MMSI") or report.get("UserID")
+        if mmsi is None:
+            return None
+        name = report.get("Name") or meta.get("ShipName")
+        name = name.strip() if isinstance(name, str) else None
+        return ParsedShipMetadata(
+            mmsi=int(mmsi),
+            time=when,
+            ship_name=name or None,
+            ship_type=_optional_int(report.get("Type")),
+            callsign=None,
+        )
+
+    if msg_type == "StaticDataReport":
+        report = (msg.get("Message") or {}).get("StaticDataReport") or {}
+        mmsi = meta.get("MMSI") or report.get("UserID")
+        if mmsi is None:
+            return None
+        if report.get("PartNumber"):
+            inner = report.get("ReportB") or {}
+            return ParsedShipMetadata(
+                mmsi=int(mmsi),
+                time=when,
+                ship_name=None,
+                ship_type=_optional_int(inner.get("ShipType")),
+                callsign=(inner.get("CallSign") or "").strip() or None,
+            )
+        inner = report.get("ReportA") or {}
+        name = inner.get("Name") or meta.get("ShipName")
+        name = name.strip() if isinstance(name, str) else None
+        return ParsedShipMetadata(
+            mmsi=int(mmsi),
+            time=when,
+            ship_name=name or None,
+            ship_type=None,
+            callsign=None,
+        )
+
+    return None
+
+
 def parse_ship_static_data(msg: dict[str, Any]) -> ParsedShipMetadata | None:
     """Decode an AISStream ShipStaticData envelope.
 
