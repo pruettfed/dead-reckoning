@@ -22,6 +22,8 @@ from app.ais import (
     ParsedPosition,
     ParsedShipMetadata,
     build_subscribe_message,
+    parse_class_b_position_report,
+    parse_class_b_static_data,
     parse_position_report,
     parse_ship_static_data,
 )
@@ -108,6 +110,20 @@ async def _consume(ws: websockets.WebSocketClientProtocol, stop: asyncio.Event) 
                 buffer.append(pos)
         elif msg_type == "ShipStaticData":
             meta = parse_ship_static_data(msg)
+            if meta is not None:
+                sources.mark_message("ais")
+                await _upsert_ship_metadata(meta)
+        elif msg_type in ("StandardClassBPositionReport", "ExtendedClassBPositionReport"):
+            pos = parse_class_b_position_report(msg)
+            if pos is not None:
+                sources.mark_message("ais")
+                buffer.append(pos)
+            if msg_type == "ExtendedClassBPositionReport":
+                meta = parse_class_b_static_data(msg)
+                if meta is not None:
+                    await _upsert_ship_metadata(meta)
+        elif msg_type == "StaticDataReport":
+            meta = parse_class_b_static_data(msg)
             if meta is not None:
                 sources.mark_message("ais")
                 await _upsert_ship_metadata(meta)
