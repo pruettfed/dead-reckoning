@@ -80,7 +80,7 @@ ingestion always covers all of them simultaneously (switching ROI is a view filt
 ## `GET /api/vessels`
 
 Latest AIS position per vessel inside an ROI, within a trailing
-`VESSEL_ACTIVE_MINUTES` (default 30 min) window ending at `at`.
+`VESSEL_ACTIVE_MINUTES` (default 240 min / 4h) window ending at `at`.
 
 **Query parameters**
 

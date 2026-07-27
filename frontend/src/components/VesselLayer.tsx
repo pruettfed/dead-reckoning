@@ -4,6 +4,7 @@ import { CircleMarker, Polyline, Popup } from "react-leaflet";
 
 import { apiGet } from "../api";
 import { navStatusLabel } from "../navStatus";
+import { formatAge } from "../vesselAge";
 import type { TrackPoint, Vessel } from "../types";
 
 // Same resolvable-hull range as LARGE_VESSEL_TYPE_MIN/MAX in
@@ -74,6 +75,8 @@ export default function VesselLayer({
               )}
               <br />
               {new Date(v.time).toLocaleString()}
+              <br />
+              {formatAge(v.time, at ? new Date(at).getTime() : Date.now(), at ? "scene" : "live")}
               <br />
               <button onClick={() => setTrackMmsi(trackMmsi === v.mmsi ? null : v.mmsi)}>
                 {trackMmsi === v.mmsi ? "Hide track" : "Show track"}
