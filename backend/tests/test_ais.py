@@ -240,6 +240,16 @@ def test_static_data_report_part_number_as_int():
     assert meta.ship_type == 37
 
 
+def test_static_data_report_part_number_zero_is_part_a():
+    """AISStream may send PartNumber as 0 (falsy int) rather than False."""
+    inner = {**SAMPLE_STATIC_DATA_REPORT_PART_A["Message"]["StaticDataReport"], "PartNumber": 0}
+    msg = {**SAMPLE_STATIC_DATA_REPORT_PART_A, "Message": {"StaticDataReport": inner}}
+    meta = parse_class_b_static_data(msg)
+    assert meta is not None
+    assert meta.ship_name == "LITTLE SKIFF"
+    assert meta.ship_type is None
+
+
 def test_class_b_static_data_missing_mmsi_returns_none():
     meta_block = {**SAMPLE_STATIC_DATA_REPORT_PART_A["MetaData"], "MMSI": None}
     inner = {**SAMPLE_STATIC_DATA_REPORT_PART_A["Message"]["StaticDataReport"]}

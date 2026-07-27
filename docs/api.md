@@ -90,8 +90,11 @@ Latest AIS position per vessel inside an ROI, within a trailing
 | `at`  | ISO-8601 string | now                | Positions as of this UTC moment. The frontend sets this to a SAR scene's `sensed_at` to show vessels at acquisition time. |
 
 **Response** — array of vessel snapshots: `mmsi`, `time`, `lat`, `lon`, `sog`,
-`cog`, `ship_name`, `ship_type` (AIS code, table below), `callsign`. Static
-fields are `null` until the vessel's `ShipStaticData` broadcast is seen.
+`cog`, `ship_name`, `ship_type` (AIS code, table below), `callsign`, `status`.
+Static fields are `null` until the vessel's `ShipStaticData` broadcast is seen.
+`status` is a human-readable navigational status label, present only when the
+vessel's raw navigational status resolves to a known value (omitted
+otherwise) — the raw code itself is never exposed.
 
 ```bash
 curl "http://localhost:8000/api/vessels?roi=north_taiwan&at=2026-07-11T02:14:36Z"

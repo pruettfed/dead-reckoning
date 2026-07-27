@@ -31,7 +31,7 @@ backend/
     config.py           # pydantic-settings Settings; NoDecode on CORS_ORIGINS list field
     database.py         # async engine, sessionmaker, Base, get_session() dependency
     models.py           # SQLAlchemy models — AISPosition, ShipMetadata, SarSceneRow, SarDetection
-    ais.py              # Pure parsing — AISStream PositionReport → ParsedPosition
+    ais.py              # Pure parsing — AISStream PositionReport → ParsedPosition; also Class B (types 18/19/24)
     ingest.py           # Long-running tasks — run_ingest (WebSocket) + run_retention (hourly prune)
     rois.py             # Static ROI registry: ais_bbox (free, wide, coastal) vs
                         # sar_bbox (costs PU, small, on water) + fused/survey mode
