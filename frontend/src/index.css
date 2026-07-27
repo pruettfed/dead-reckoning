@@ -72,11 +72,45 @@ body,
 }
 
 .scene-list,
+.schedule-list,
 .source-list {
   list-style: none;
   padding: 0;
   margin: 0;
   font-size: 0.85rem;
+}
+
+.countdown {
+  font-size: 0.9rem;
+  margin: 0.25rem 0 0.5rem;
+  line-height: 1.4;
+}
+
+.schedule-item {
+  display: flex;
+  gap: 8px;
+  cursor: pointer;
+  padding: 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.schedule-item.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+/* Fixed column so the countdowns line up as a schedule rather than ragged text. */
+.schedule-when {
+  flex: 0 0 4.5rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.schedule-region {
+  flex: 1;
+  min-width: 0;
 }
 
 .scene-item {

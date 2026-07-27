@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # AIS buffer depth required before a scene may be fused; not a match parameter.
     fusion_max_time_delta_hours: float = Field(default=2.0, alias="FUSION_MAX_TIME_DELTA_HOURS")
 
+    # Automatic analysis scheduler
+    scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
+    scheduler_interval_seconds: float = Field(default=900.0, alias="SCHEDULER_INTERVAL_SECONDS")
+    pu_monthly_ceiling: float = Field(default=25_000.0, alias="PU_MONTHLY_CEILING")
+
     # Fusion by dead reckoning — measured defaults
     ais_fix_max_age_s: float = Field(default=1800.0, alias="AIS_FIX_MAX_AGE_S")
     # Agreement required of a stationary vessel; speed terms are added per candidate.

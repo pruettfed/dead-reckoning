@@ -28,7 +28,9 @@ from app.sar import (
     SarScene,
     _bbox_to_polygon_wkt,
     chip_overview_png,
+    estimate_pu,
     fetch_scene_pixels,
+    plan_fetch_grid,
     search_scenes,
 )
 
@@ -178,17 +180,26 @@ MIN_AIS_IN_ROI = text(
 )
 
 
-async def find_target_scene(roi: ROI, *, require_ais: bool = True) -> tuple[SarScene, str | None]:
+async def find_target_scene(
+    roi: ROI, *, require_ais: bool = True, scenes: list[SarScene] | None = None
+) -> tuple[SarScene, str | None]:
     """Newest analyzable scene for the ROI and its current DB status (None if new).
 
     Free (catalog + DB only). Raises NoEligibleScene when nothing qualifies.
 
     require_ais=True (production) refuses a fused-ROI scene with no AIS to bracket it;
     False takes the newest covering pass regardless (for offline detector benchmarking).
+
+    `scenes` supplies an already-fetched catalog listing covering at least the last
+    SEARCH_WINDOW_DAYS, so the scheduler's per-ROI search can serve both the trigger
+    decision and its pass-interval estimate from one call.
     """
     settings = get_settings()
     now = datetime.now(tz=timezone.utc)
-    scenes = await search_scenes(roi.sar_bbox, now - timedelta(days=SEARCH_WINDOW_DAYS), now)
+    if scenes is None:
+        scenes = await search_scenes(
+            roi.sar_bbox, now - timedelta(days=SEARCH_WINDOW_DAYS), now
+        )
     if not scenes:
         raise NoEligibleScene(
             f"no Sentinel-1 scene over {roi.name!r} in the last {SEARCH_WINDOW_DAYS} days"
@@ -249,10 +260,35 @@ async def find_target_scene(roi: ROI, *, require_ais: bool = True) -> tuple[SarS
     return scene, status
 
 
-def start_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
+def start_analysis(roi: ROI, scene: SarScene, detector: Detector) -> asyncio.Task:
+    """Run an analysis in the background. Returns the task so a caller that wants
+    to serialize work (the scheduler) can await it; the HTTP path ignores it."""
     task = asyncio.create_task(_run_analysis(roi, scene, detector), name=f"analysis-{roi.name}")
     _in_flight[roi.name] = task
     task.add_done_callback(lambda _: _in_flight.pop(roi.name, None))
+    return task
+
+
+RECORD_PU = text(
+    "INSERT INTO pu_ledger (roi, scene_id, pu) VALUES (:roi, :scene_id, :pu)"
+)
+
+MONTH_TO_DATE_PU = text(
+    "SELECT coalesce(sum(pu), 0) FROM pu_ledger WHERE spent_at >= date_trunc('month', now())"
+)
+
+SCENE_HAS_PU_SPEND = text("SELECT exists(SELECT 1 FROM pu_ledger WHERE scene_id = :scene_id)")
+
+
+async def month_to_date_pu(session) -> float:
+    """Processing Units spent this calendar month, against PU_MONTHLY_BUDGET."""
+    return float((await session.execute(MONTH_TO_DATE_PU)).scalar() or 0.0)
+
+
+async def scene_has_pu_spend(session, scene_id: str) -> bool:
+    """Whether a pixel fetch was ever attempted for this scene — i.e. whether
+    retrying it would cost PU a second time."""
+    return bool((await session.execute(SCENE_HAS_PU_SPEND, {"scene_id": scene_id})).scalar())
 
 
 UPSERT_SCENE = text(
@@ -310,6 +346,20 @@ async def _run_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
         await session.commit()
 
     try:
+        # Record the spend before the call, not after: PU is consumed by the
+        # request, so a fetch that dies mid-flight must still count against the
+        # budget. This row is also what stops the scheduler auto-retrying a
+        # failure that already cost money.
+        async with SessionLocal() as session:
+            await session.execute(
+                RECORD_PU,
+                {
+                    "roi": roi.name,
+                    "scene_id": scene.id,
+                    "pu": estimate_pu(plan_fetch_grid(roi.sar_bbox)),
+                },
+            )
+            await session.commit()
         chip = await fetch_scene_pixels(scene, roi.sar_bbox)
         sources.mark_connected(SOURCE)
         sources.mark_message(SOURCE)

@@ -27,6 +27,7 @@ __all__ = [
     "SarSceneRow",
     "SarDetection",
     "LandPolygon",
+    "PuLedgerEntry",
 ]
 
 
@@ -144,6 +145,30 @@ class SarDetection(Base):
     # response. Recomputable from `location` alone at zero PU — see landmask.py.
     on_land: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
+    )
+
+
+class PuLedgerEntry(Base):
+    """One Processing-Unit spend against the Copernicus budget.
+
+    Written immediately *before* the pixel fetch, so a request that dies
+    mid-flight still counts — the PU is gone either way. A separate table rather
+    than a column on `sar_scenes` because a fetch can be attempted for a scene
+    whose row never reaches a terminal state, and because `create_all` adds
+    missing tables to a live database but cannot alter existing ones.
+
+    Also the record that stops an automatic retry from re-spending: a failed
+    scene with a ledger entry already cost PU, so the scheduler leaves it alone.
+    """
+
+    __tablename__ = "pu_ledger"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    roi: Mapped[str] = mapped_column(String(32), nullable=False)
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    pu: Mapped[float] = mapped_column(Float, nullable=False)
+    spent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 
 

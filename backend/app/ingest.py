@@ -77,7 +77,7 @@ async def run_ingest(stop: asyncio.Event) -> None:
         except Exception as exc:
             sources.mark_disconnected("ais", reason=str(exc))
             log.warning("AIS ingest error: %s; reconnecting in %.1fs", exc, backoff)
-            if await _sleep_or_stop(stop, backoff):
+            if await sleep_or_stop(stop, backoff):
                 return
             backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
 
@@ -220,7 +220,7 @@ def _to_orm(pos: ParsedPosition) -> AISPosition:
     )
 
 
-async def _sleep_or_stop(stop: asyncio.Event, seconds: float) -> bool:
+async def sleep_or_stop(stop: asyncio.Event, seconds: float) -> bool:
     """Sleep up to `seconds`, returning True if `stop` fired during the wait."""
     try:
         await asyncio.wait_for(stop.wait(), timeout=seconds)
@@ -250,5 +250,5 @@ async def run_retention(stop: asyncio.Event) -> None:
             raise
         except Exception as exc:
             log.warning("retention prune failed: %s", exc)
-        if await _sleep_or_stop(stop, RETENTION_INTERVAL_SECONDS):
+        if await sleep_or_stop(stop, RETENTION_INTERVAL_SECONDS):
             return

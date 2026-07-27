@@ -127,15 +127,23 @@ Position history for one vessel, oldest → newest.
 
 ---
 
-## `POST /api/analysis/{roi}` 🔒 admin-only
+## `POST /api/analysis/{roi}` 🔒 ops-only
 
 Analyze the newest Sentinel-1 pass over the ROI: fetch pixels (Sentinel Hub
 Process API — **spends Processing Units**, ~100 PU per ROI), run YOLOv8 ship
 detection, fuse against the AIS buffer, store the results.
 
-**Auth:** header `X-Analysis-Key: <ANALYSIS_API_KEY>`. This endpoint is never
-exposed to regular users — analysis spends the operator's PU budget. Users see
-results and pass times via the read-only endpoints below.
+**This is not the routine path.** A background scheduler sweeps every region and
+analyzes each new usable pass automatically; nothing in the frontend can request
+imagery. This endpoint stays for operator recovery — backfilling a region,
+forcing a retry of a scene whose fetch already spent PU (which the scheduler
+refuses to repeat), or exercising a newly added region.
+
+**Auth:** header `X-Analysis-Key: <ANALYSIS_API_KEY>`.
+
+Note the scheduler's month-to-date `PU_MONTHLY_CEILING` does **not** gate this
+endpoint — a deliberate operator action is allowed to use the headroom the
+ceiling reserves.
 
 **Responses**
 
@@ -247,6 +255,63 @@ Free (0 PU) pass timing for an ROI, from the CDSE catalog. Cached 10 minutes.
 
 `next_expected_at` is the median interval of the last 14 days of passes rolled
 forward — `null` when fewer than 3 passes exist (e.g. sparse Black Sea coverage).
+It is an estimate from observed cadence, **not an orbit prediction**, and the
+analysis follows the pass by however long CDSE takes to publish the GRD product
+(hours).
+
+---
+
+## `GET /api/analysis/schedule`
+
+Free (0 PU). Every region's next automatic analysis, plus month-to-date spend.
+Served from the scheduler's last sweep — no catalog call per request.
+
+```json
+{
+  "regions": [
+    {
+      "name": "gulf_of_finland",
+      "label": "Gulf of Finland",
+      "mode": "fused",
+      "latest_scene_sensed_at": "2026-07-26T04:31:02Z",
+      "next_expected_at": "2026-07-26T16:28:44Z",
+      "last_processed_at": "2026-07-26T07:02:11Z",
+      "state": "scheduled"
+    }
+  ],
+  "month_to_date_pu": 1240.5,
+  "pu_monthly_ceiling": 24000.0
+}
+```
+
+`regions` is **empty** until the first sweep completes, and whenever
+`SCHEDULER_ENABLED=false` or the scheduler is idle for want of CDSE credentials
+or a model checkpoint. Clients should render that as "no schedule yet" rather
+than as an error.
+
+| `state` | Meaning |
+|---------|---------|
+| `scheduled` | Pass still ahead; `next_expected_at` is the estimate. |
+| `awaiting_publication` | Expected pass time has gone by. Normal — GRD products publish hours after acquisition. |
+| `analyzing` | A fetch/detect/fuse run is in flight for this region now. |
+| `unknown` | Fewer than 3 recent passes, so no interval to project. |
+
+`month_to_date_pu` sums the `pu_ledger` table for the current calendar month.
+Entries are written immediately *before* each pixel fetch, so a request that
+dies mid-flight still counts — the PU is spent either way.
+
+---
+
+## `DELETE /api/analyses` 🔒 ops-only
+
+Deletes every SAR scene and detection across all regions; AIS data is kept
+(detections cascade via the `sar_detections` → `sar_scenes` FK). Returns
+`{ "scenes_deleted": n }`. **409** if any analysis is in flight.
+
+**Auth:** header `X-Analysis-Key: <ANALYSIS_API_KEY>`.
+
+Note this does not clear `pu_ledger` — spend already happened, and the budget
+should not appear to reset because the results were discarded.
 
 ---
 

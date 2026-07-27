@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
-import { apiDelete, apiGet, apiPost } from "../api";
+import { apiGet } from "../api";
+import { formatCountdown, useNow } from "../countdown";
 import type { NextPass, Scene } from "../types";
 
 type Props = {
@@ -11,36 +12,37 @@ type Props = {
 };
 
 export default function ScenePanel({ roi, scenes, selectedSceneId, onSelect }: Props) {
-  const queryClient = useQueryClient();
+  const now = useNow();
 
   const nextPass = useQuery({
     queryKey: ["next-pass", roi],
     queryFn: () => apiGet<NextPass>("/analysis/next-pass", { roi }),
+    // The backend caches this for 10 minutes; the countdown ticks locally.
+    refetchInterval: 60_000,
   });
 
-  // Dev-only trigger: analysis spends the owner's PU budget, so the button only
-  // exists when VITE_ANALYSIS_API_KEY is set (never set it in a deployed build).
-  const analysisKey = import.meta.env.VITE_ANALYSIS_API_KEY as string | undefined;
-  const trigger = useMutation({
-    mutationFn: () =>
-      apiPost<{ scene_id: string; status: string }>(`/analysis/${roi}`, {
-        "X-Analysis-Key": analysisKey ?? "",
-      }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["scenes", roi] }),
-  });
-
-  // Wipes every ROI's scenes + detections (AIS is kept), so refresh everything.
-  const reset = useMutation({
-    mutationFn: () =>
-      apiDelete<{ scenes_deleted: number }>("/analyses", {
-        "X-Analysis-Key": analysisKey ?? "",
-      }),
-    onSettled: () => queryClient.invalidateQueries(),
-  });
+  const expected = nextPass.data?.next_expected_at ?? null;
 
   return (
     <section>
       <h2>SAR analyses</h2>
+      <p className="countdown">
+        {expected ? (
+          <>
+            next pass in <b>{formatCountdown(expected, now)}</b>
+            <br />
+            <span className="muted">
+              {new Date(expected).toLocaleString()} — estimated from recent pass
+              intervals. Analysis runs automatically once the imagery publishes,
+              a few hours later.
+            </span>
+          </>
+        ) : (
+          <span className="muted">
+            not enough recent passes over this region to estimate the next one
+          </span>
+        )}
+      </p>
       <p className="muted">
         {nextPass.data?.latest_scene_sensed_at && (
           <>
@@ -48,41 +50,10 @@ export default function ScenePanel({ roi, scenes, selectedSceneId, onSelect }: P
             <br />
           </>
         )}
-        {nextPass.data?.next_expected_at && (
-          <>
-            next expected: {new Date(nextPass.data.next_expected_at).toLocaleString()}
-            <br />
-          </>
-        )}
         {nextPass.data?.last_processed_at
           ? <>last analyzed: {new Date(nextPass.data.last_processed_at).toLocaleString()}</>
           : <>no analysis run yet</>}
       </p>
-
-      {analysisKey && (
-        <p>
-          <button onClick={() => trigger.mutate()} disabled={trigger.isPending}>
-            {trigger.isPending ? "Requesting…" : "Run analysis on latest pass"}
-          </button>
-          {trigger.isError && <span className="error"> {String(trigger.error.message)}</span>}
-          <br />
-          <button
-            onClick={() => {
-              if (
-                window.confirm(
-                  "Delete ALL SAR scenes and detections across every region? AIS data is kept. This can't be undone.",
-                )
-              ) {
-                reset.mutate();
-              }
-            }}
-            disabled={reset.isPending}
-          >
-            {reset.isPending ? "Resetting…" : "Reset all analyses"}
-          </button>
-          {reset.isError && <span className="error"> {String(reset.error.message)}</span>}
-        </p>
-      )}
 
       {scenes.length === 0 && <p className="muted">no analyzed scenes for this ROI</p>}
       <ul className="scene-list">

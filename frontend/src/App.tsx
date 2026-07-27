@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "./api";
 import MapView from "./components/MapView";
 import ScenePanel from "./components/ScenePanel";
+import SchedulePanel from "./components/SchedulePanel";
 import SceneLayer from "./components/SceneLayer";
 import VesselLayer from "./components/VesselLayer";
 import type { Detection, Health, Roi, Scene } from "./types";
@@ -147,6 +148,8 @@ export default function App() {
             Show {selectedScene?.land_count} land-masked
           </label>
         )}
+
+        <SchedulePanel roi={roi} onSelectRoi={changeRoi} />
 
         <section>
           <h2>Sources</h2>

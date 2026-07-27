@@ -13,17 +13,24 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
-from app import fusion, landmask, pipeline, sources
+from app import fusion, landmask, pipeline, scheduler, sources
 from app.config import get_settings
 from app.database import Base, engine, get_session
 from app.detect import DetectorUnavailable, load_detector
 from app.ingest import run_ingest, run_retention
 from app.rois import ROI, ROIS, get_roi
+from app.scheduler import run_scheduler
 
 settings = get_settings()
 logging.basicConfig(
     level=getattr(logging, settings.log_level, logging.INFO),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
+
+REAP_INTERRUPTED = text(
+    "UPDATE sar_scenes SET status = 'failed', error = 'interrupted by restart' "
+    "WHERE status = 'processing'"
 )
 
 
@@ -33,11 +40,15 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await conn.run_sync(Base.metadata.create_all)
         await landmask.apply_schema(conn)
         await fusion.apply_schema(conn)
+        # In-flight analyses live only in `pipeline._in_flight`, so any restart
+        # orphans their rows. Nothing is retrying them; say so.
+        await conn.execute(REAP_INTERRUPTED)
     sources.mark_disconnected(pipeline.SOURCE)  # list the SAR source in /api/health from boot
     stop = asyncio.Event()
     tasks = [
         asyncio.create_task(run_ingest(stop), name="ais-ingest"),
         asyncio.create_task(run_retention(stop), name="ais-retention"),
+        asyncio.create_task(run_scheduler(stop), name="sar-scheduler"),
     ]
     try:
         yield
@@ -391,3 +402,19 @@ async def analysis_next_pass(
         )
     ).scalar()
     return info | {"last_processed_at": last_processed}
+
+
+@app.get(
+    "/api/analysis/schedule",
+    summary="Upcoming automatic analyses across every region, and PU spent this month (free)",
+)
+async def analysis_schedule(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    return {
+        # Empty until the scheduler's first sweep lands, or whenever it is
+        # disabled — the client renders that state rather than guessing.
+        "regions": scheduler.snapshot(),
+        "month_to_date_pu": await pipeline.month_to_date_pu(session),
+        "pu_monthly_ceiling": settings.pu_monthly_ceiling,
+    }

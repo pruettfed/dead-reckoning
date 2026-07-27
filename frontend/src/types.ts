@@ -106,3 +106,33 @@ export type NextPass = {
   next_expected_at: string | null;
   last_processed_at: string | null;
 };
+
+// analyzing        — a fetch/detect/fuse run is in flight right now
+// awaiting_publication — the expected pass time has gone by; CDSE publishes GRD
+//                    products hours after acquisition, so the wait is normal
+// scheduled        — pass still ahead
+// unknown          — fewer than three recent passes, so no interval to project
+export type ScheduleState =
+  | "analyzing"
+  | "awaiting_publication"
+  | "scheduled"
+  | "unknown";
+
+export type ScheduleRow = {
+  name: string;
+  label: string;
+  mode: "fused" | "survey";
+  latest_scene_sensed_at: string | null;
+  // Median interval between recent passes rolled forward — an estimate from the
+  // catalog, not an orbit prediction. Null below three passes.
+  next_expected_at: string | null;
+  last_processed_at: string | null;
+  state: ScheduleState;
+};
+
+export type Schedule = {
+  // Empty until the scheduler's first sweep lands, or while it is disabled.
+  regions: ScheduleRow[];
+  month_to_date_pu: number;
+  pu_monthly_ceiling: number;
+};
