@@ -39,6 +39,7 @@ PROBE_RADIUS_M = 4_000.0
 PROBE_MIN_SEPARATION_M = 600.0
 PROBE_TARGET = 750
 # AIS ship_type 60-89: passenger, cargo, tanker — the hulls 10 m/px resolves.
+# Trusted regardless of which class (A or B) reported it.
 LARGE_VESSEL_TYPE_MIN = 60
 LARGE_VESSEL_TYPE_MAX = 89
 RECALL_RADIUS_M = 500.0
