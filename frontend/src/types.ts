@@ -32,6 +32,8 @@ export type Vessel = {
   ship_name: string | null;
   ship_type: number | null;
   callsign: string | null;
+  // Raw ITU-R M.1371 code (0-15) or null; see navStatusLabel for display.
+  nav_status: number | null;
 };
 
 export type TrackPoint = {
