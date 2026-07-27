@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
 from app import fusion, landmask, pipeline, sources
+from app.ais import nav_status_label
 from app.config import get_settings
 from app.database import Base, engine, get_session
 from app.detect import DetectorUnavailable, load_detector
@@ -119,6 +120,7 @@ VESSELS_QUERY = text(
         ST_X(p.location::geometry) AS lon,
         p.sog,
         p.cog,
+        p.nav_status,
         m.ship_name,
         m.ship_type,
         m.callsign
@@ -162,7 +164,19 @@ async def list_vessels(
             },
         )
     ).mappings().all()
-    return [dict(r) for r in rows]
+    return [_vessel_dict(r) for r in rows]
+
+
+def _vessel_dict(row) -> dict:
+    """Row -> API dict, adding a `status` key only when a label resolves.
+
+    `nav_status` itself is not exposed — it's raw ITU code, not user-facing.
+    """
+    d = dict(row)
+    label = nav_status_label(d.pop("nav_status"))
+    if label is not None:
+        d["status"] = label
+    return d
 
 
 TRACK_QUERY = text(
