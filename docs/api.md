@@ -263,8 +263,15 @@ analysis follows the pass by however long CDSE takes to publish the GRD product
 
 ## `GET /api/analysis/schedule`
 
-Free (0 PU). Every region's next automatic analysis, plus month-to-date spend.
-Served from the scheduler's last sweep — no catalog call per request.
+Free (0 PU). Every region's next automatic analysis, the most recently completed
+one, and month-to-date spend.
+
+Only the **catalog** facts (`latest_scene_sensed_at`, `next_expected_at`) come
+from the scheduler's last sweep, so no catalog call happens per request.
+`last_processed_at`, `state`, and `most_recent` are read from the database on
+every call — a region that has just finished analyzing must stop reporting
+"analyzing"/"never analyzed" immediately, not at its next sweep up to
+`SCHEDULER_INTERVAL_SECONDS` later.
 
 ```json
 {
@@ -279,10 +286,24 @@ Served from the scheduler's last sweep — no catalog call per request.
       "state": "scheduled"
     }
   ],
+  "most_recent": {
+    "roi": "gulf_of_finland",
+    "label": "Gulf of Finland",
+    "mode": "fused",
+    "sensed_at": "2026-07-26T04:31:02Z",
+    "processed_at": "2026-07-26T07:02:11Z",
+    "detection_count": 23,
+    "dark_count": 2
+  },
   "month_to_date_pu": 1240.5,
   "pu_monthly_ceiling": 24000.0
 }
 ```
+
+`most_recent` is the newest `processed` scene across **all** regions, or `null`
+before the first analysis completes. `dark_count` is always 0 for a `survey`
+region — those are never fused, so nothing in them can be called dark; clients
+should not render a dark figure for them.
 
 `regions` is **empty** until the first sweep completes, and whenever
 `SCHEDULER_ENABLED=false` or the scheduler is idle for want of CDSE credentials

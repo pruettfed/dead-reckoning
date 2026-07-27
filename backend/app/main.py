@@ -404,6 +404,29 @@ async def analysis_next_pass(
     return info | {"last_processed_at": last_processed}
 
 
+# One grouped query for all regions, read per request rather than cached by the
+# scheduler: a region that just finished must stop saying "never analyzed"
+# immediately, not at its next sweep.
+LAST_PROCESSED_BY_ROI = text(
+    "SELECT roi, max(processed_at) AS last_processed_at FROM sar_scenes "
+    "WHERE status = 'processed' GROUP BY roi"
+)
+
+MOST_RECENT_ANALYSIS = text(
+    """
+    SELECT s.roi, s.sensed_at, s.processed_at,
+           count(d.id) FILTER (WHERE NOT d.on_land) AS detection_count,
+           count(d.id) FILTER (WHERE d.is_dark) AS dark_count
+    FROM sar_scenes s
+    LEFT JOIN sar_detections d ON d.scene_id = s.id
+    WHERE s.status = 'processed'
+    GROUP BY s.id
+    ORDER BY s.processed_at DESC
+    LIMIT 1
+    """
+)
+
+
 @app.get(
     "/api/analysis/schedule",
     summary="Upcoming automatic analyses across every region, and PU spent this month (free)",
@@ -411,10 +434,25 @@ async def analysis_next_pass(
 async def analysis_schedule(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:
+    last_processed = {
+        r.roi: r.last_processed_at
+        for r in (await session.execute(LAST_PROCESSED_BY_ROI)).all()
+    }
+    recent = (await session.execute(MOST_RECENT_ANALYSIS)).mappings().first()
     return {
         # Empty until the scheduler's first sweep lands, or whenever it is
         # disabled — the client renders that state rather than guessing.
-        "regions": scheduler.snapshot(),
+        "regions": scheduler.snapshot(last_processed, datetime.now(tz=timezone.utc)),
+        # Null until the first analysis completes.
+        "most_recent": (
+            dict(recent)
+            | {
+                "label": ROIS[recent["roi"]].label,
+                "mode": ROIS[recent["roi"]].mode,
+            }
+            if recent and recent["roi"] in ROIS
+            else None
+        ),
         "month_to_date_pu": await pipeline.month_to_date_pu(session),
         "pu_monthly_ceiling": settings.pu_monthly_ceiling,
     }

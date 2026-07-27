@@ -274,6 +274,11 @@ PU_ORTHO_FACTOR = 2.0     # processing.orthorectify = True
 
 PU_MONTHLY_BUDGET = 30_000
 
+# CDSE's Process API rate-limit
+MAX_TILE_RETRIES = 4
+BACKOFF_BASE_SECONDS = 10
+BACKOFF_MAX_SECONDS = 80
+
 # The Process API mosaics every acquisition in this window around the chosen
 # scene, so the imagery actually returned is the *union* of the slices in it —
 # not one slice's footprint. `pipeline.footprint_coverage` reuses these to
@@ -288,6 +293,21 @@ def estimate_pu(grid: FetchGrid) -> float:
         * PU_BANDS_FACTOR
         * PU_ORTHO_FACTOR
     )
+
+
+def _retry_delay_seconds(attempt: int, retry_after: str | None) -> float:
+    """Backoff before retrying a 429'd tile request.
+
+    Honors CDSE's `Retry-After` header (seconds) when present and parseable;
+    otherwise backs off exponentially from `BACKOFF_BASE_SECONDS`, doubling
+    per attempt and capped at `BACKOFF_MAX_SECONDS`.
+    """
+    if retry_after is not None:
+        try:
+            return float(retry_after)
+        except ValueError:
+            pass
+    return min(BACKOFF_BASE_SECONDS * 2**attempt, BACKOFF_MAX_SECONDS)
 
 
 def _iso_z(dt: datetime) -> str:
@@ -410,7 +430,16 @@ async def fetch_scene_pixels(
                 evalscript=evalscript, speckle_filter=speckle_filter,
             )
             async with semaphore:
-                resp = await client.post(SH_PROCESS_URL, json=body, headers=headers)
+                for attempt in range(MAX_TILE_RETRIES + 1):
+                    resp = await client.post(SH_PROCESS_URL, json=body, headers=headers)
+                    if resp.status_code != 429 or attempt == MAX_TILE_RETRIES:
+                        break
+                    delay = _retry_delay_seconds(attempt, resp.headers.get("Retry-After"))
+                    log.warning(
+                        "%s: tile rate-limited (429), retrying in %.1fs (attempt %d/%d)",
+                        scene.name, delay, attempt + 1, MAX_TILE_RETRIES,
+                    )
+                    await asyncio.sleep(delay)
                 resp.raise_for_status()
             image = Image.open(io.BytesIO(resp.content)).convert("L")
             chip[tile.y_off:tile.y_off + tile.height, tile.x_off:tile.x_off + tile.width] = np.asarray(image)

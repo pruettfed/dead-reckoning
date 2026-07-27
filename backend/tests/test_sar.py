@@ -13,11 +13,14 @@ import pytest
 from PIL import Image
 
 from app.sar import (
+    BACKOFF_BASE_SECONDS,
+    BACKOFF_MAX_SECONDS,
     DB_MIN,
     EVALSCRIPT,
     MAX_TILE_PX,
     SarChip,
     SarScene,
+    _retry_delay_seconds,
     build_process_request,
     chip_overview_png,
     estimate_pu,
@@ -161,6 +164,25 @@ class TestBuildProcessRequest:
             make_scene(), TEST_BBOX, 100, 100, evalscript="//custom"
         )
         assert body["evalscript"] == "//custom"
+
+
+class TestRetryDelaySeconds:
+    def test_honors_retry_after_header(self):
+        assert _retry_delay_seconds(0, "5") == 5.0
+
+    def test_retry_after_overrides_attempt_number(self):
+        assert _retry_delay_seconds(3, "5") == 5.0
+
+    def test_falls_back_to_exponential_backoff_without_header(self):
+        assert _retry_delay_seconds(0, None) == BACKOFF_BASE_SECONDS
+        assert _retry_delay_seconds(1, None) == BACKOFF_BASE_SECONDS * 2
+        assert _retry_delay_seconds(2, None) == BACKOFF_BASE_SECONDS * 4
+
+    def test_exponential_backoff_caps_at_max(self):
+        assert _retry_delay_seconds(10, None) == BACKOFF_MAX_SECONDS
+
+    def test_unparseable_retry_after_falls_back_to_exponential(self):
+        assert _retry_delay_seconds(0, "not-a-number") == BACKOFF_BASE_SECONDS
 
 
 def body_uses_evalscript() -> bool:

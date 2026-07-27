@@ -25,7 +25,9 @@ It holds no durable state of its own. `sar_scenes.id` is the CDSE product UUID, 
 
 `pu_ledger` rows are written immediately *before* `fetch_scene_pixels`, so a request that dies mid-flight still counts — the PU is gone either way. Because in-flight state lives only in `pipeline._in_flight`, lifespan startup also reaps orphaned `processing` rows to `failed`.
 
-One catalog call per region per sweep serves both jobs: the 14-day lookback feeds `estimate_next_pass`, and `recent_scenes` narrows it to the 7-day window `find_target_scene` expects (widening that would let a survey ROI, which has no AIS bracket to bound it, analyze fortnight-old imagery). The resulting schedule rows are cached in module memory and served by `GET /api/analysis/schedule` — no catalog fan-out on a cold page load.
+One catalog call per region per sweep serves both jobs: the 14-day lookback feeds `estimate_next_pass`, and `recent_scenes` narrows it to the 7-day window `find_target_scene` expects (widening that would let a survey ROI, which has no AIS bracket to bound it, analyze fortnight-old imagery).
+
+**Only catalog facts are cached.** `_schedule` holds `latest_scene_sensed_at` and `next_expected_at`, which genuinely only change per sweep; `snapshot()` derives `last_processed_at` and `state` per request from the database and `is_in_flight`. Caching those was a real bug — a region that finished analyzing kept reporting "analyzing" and "never analyzed" until its next sweep, up to 15 minutes later, while `/api/analysis/next-pass` already reported the truth. The rule: if the database knows it, read it; cache only what costs an external call.
 
 ## External APIs
 

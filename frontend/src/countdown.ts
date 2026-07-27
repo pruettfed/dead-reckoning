@@ -14,6 +14,17 @@ export function formatCountdown(targetIso: string, nowMs: number): string {
   return `${minutes}m ${seconds % 60}s`;
 }
 
+/** Time since `pastIso`, coarsening as it recedes. Counterpart to
+ * `formatCountdown` for timestamps that have already happened. */
+export function formatAgo(pastIso: string, nowMs: number): string {
+  const minutes = Math.floor((nowMs - new Date(pastIso).getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 // Clock, re-rendering on an interval.
 export function useNow(intervalMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());

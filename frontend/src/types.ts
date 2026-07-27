@@ -130,9 +130,23 @@ export type ScheduleRow = {
   state: ScheduleState;
 };
 
+export type MostRecentAnalysis = {
+  roi: string;
+  label: string;
+  mode: "fused" | "survey";
+  sensed_at: string;
+  processed_at: string;
+  detection_count: number;
+  // Always 0 for survey regions — they are never fused, so nothing there can
+  // be called dark.
+  dark_count: number;
+};
+
 export type Schedule = {
   // Empty until the scheduler's first sweep lands, or while it is disabled.
   regions: ScheduleRow[];
+  // Null until the first analysis completes.
+  most_recent: MostRecentAnalysis | null;
   month_to_date_pu: number;
   pu_monthly_ceiling: number;
 };

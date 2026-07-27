@@ -94,18 +94,9 @@ def schedule_state(
     return "scheduled"
 
 
-LAST_PROCESSED = text(
-    "SELECT max(processed_at) FROM sar_scenes WHERE roi = :roi AND status = 'processed'"
-)
-
-
-def _row(
-    roi: ROI,
-    *,
-    scenes: list[SarScene],
-    last_processed_at: datetime | None,
-    now: datetime,
-) -> dict:
+def _row(roi: ROI, *, scenes: list[SarScene], now: datetime) -> dict:
+    """The catalog-derived facts for a region. Deliberately excludes anything
+    the database knows — see `snapshot`."""
     latest = max((s.sensed_at for s in scenes), default=None)
     expected = pipeline.estimate_next_pass([s.sensed_at for s in scenes], now)
     return {
@@ -114,10 +105,6 @@ def _row(
         "mode": roi.mode,
         "latest_scene_sensed_at": latest.isoformat() if latest else None,
         "next_expected_at": expected.isoformat() if expected else None,
-        "last_processed_at": last_processed_at.isoformat() if last_processed_at else None,
-        "state": schedule_state(
-            expected, analyzing=pipeline.is_in_flight(roi.name), now=now
-        ),
     }
 
 
@@ -133,16 +120,41 @@ def recent_scenes(scenes: list[SarScene], now: datetime) -> list[SarScene]:
     return [s for s in scenes if s.sensed_at >= cutoff]
 
 
-def snapshot() -> list[dict]:
+def snapshot(last_processed: dict[str, datetime], now: datetime) -> list[dict]:
     """Schedule rows, soonest pass first, regions with no estimate last.
+
+    Only the catalog facts are cached from the last sweep; `last_processed_at`
+    and `state` are derived here, per request. Caching those was the bug: a
+    region that finished analyzing kept reporting "analyzing" and "never
+    analyzed" until its next sweep, up to SCHEDULER_INTERVAL_SECONDS later,
+    while the rest of the API already knew better.
 
     Empty until the first sweep finishes — the API reports that rather than
     fanning out fourteen catalog calls on a cold page load.
     """
+    rows = [
+        row
+        | {
+            "last_processed_at": (
+                last_processed[row["name"]].isoformat()
+                if row["name"] in last_processed
+                else None
+            ),
+            "state": schedule_state(
+                _parse(row["next_expected_at"]),
+                analyzing=pipeline.is_in_flight(row["name"]),
+                now=now,
+            ),
+        }
+        for row in _schedule.values()
+    ]
     return sorted(
-        _schedule.values(),
-        key=lambda r: (r["next_expected_at"] is None, r["next_expected_at"] or ""),
+        rows, key=lambda r: (r["next_expected_at"] is None, r["next_expected_at"] or "")
     )
+
+
+def _parse(iso: str | None) -> datetime | None:
+    return datetime.fromisoformat(iso) if iso else None
 
 
 async def _sweep_roi(roi: ROI, detector: Detector, ceiling: float) -> None:
@@ -153,13 +165,7 @@ async def _sweep_roi(roi: ROI, detector: Detector, ceiling: float) -> None:
     scenes = await search_scenes(
         roi.sar_bbox, now - timedelta(days=pipeline.NEXT_PASS_LOOKBACK_DAYS), now
     )
-    async with SessionLocal() as session:
-        last_processed = (
-            await session.execute(LAST_PROCESSED, {"roi": roi.name})
-        ).scalar()
-    _schedule[roi.name] = _row(
-        roi, scenes=scenes, last_processed_at=last_processed, now=now
-    )
+    _schedule[roi.name] = _row(roi, scenes=scenes, now=now)
 
     try:
         scene, status = await pipeline.find_target_scene(
@@ -185,8 +191,10 @@ async def _sweep_roi(roi: ROI, detector: Detector, ceiling: float) -> None:
         return
 
     logger.info("%s: analyzing %s (%s)", roi.name, scene.name, decision.reason)
-    _schedule[roi.name] |= {"state": "analyzing"}
-    # Awaited, not fire-and-forget: the sweep is deliberately serial.
+    # Awaited, not fire-and-forget: the sweep is deliberately serial. No row
+    # bookkeeping around it — `snapshot` reads `is_in_flight` and the database
+    # live, so the region reports "analyzing" and then its new "analyzed" time
+    # without this function having to remember to say so.
     await pipeline.start_analysis(roi, scene, detector)
 
 

@@ -101,6 +101,11 @@ body,
   background: #eff6ff;
 }
 
+/* No countdown column — the whole width is the result. */
+.schedule-item.recent {
+  margin-bottom: 8px;
+}
+
 /* Fixed column so the countdowns line up as a schedule rather than ragged text. */
 .schedule-when {
   flex: 0 0 4.5rem;

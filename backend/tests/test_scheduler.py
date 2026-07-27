@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
+from app import scheduler
 from app.pipeline import NEXT_PASS_LOOKBACK_DAYS, SEARCH_WINDOW_DAYS
-from app.scheduler import decide, recent_scenes, schedule_state
+from app.scheduler import decide, recent_scenes, schedule_state, snapshot
 from tests.test_pipeline import make_scene
 
 NOW = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
@@ -85,6 +88,63 @@ class TestRecentScenes:
     def test_empty_when_every_pass_is_stale(self):
         stale = make_scene("stale", NOW - timedelta(days=NEXT_PASS_LOOKBACK_DAYS))
         assert recent_scenes([stale], NOW) == []
+
+
+@pytest.fixture
+def swept():
+    """Two regions as the scheduler's last sweep left them: catalog facts only."""
+    scheduler._schedule.clear()
+    scheduler._schedule.update(
+        {
+            "alpha": {
+                "name": "alpha",
+                "label": "Alpha",
+                "mode": "fused",
+                "latest_scene_sensed_at": (NOW - timedelta(hours=6)).isoformat(),
+                "next_expected_at": (NOW + timedelta(hours=6)).isoformat(),
+            },
+            "beta": {
+                "name": "beta",
+                "label": "Beta",
+                "mode": "survey",
+                "latest_scene_sensed_at": None,
+                "next_expected_at": None,
+            },
+        }
+    )
+    yield
+    scheduler._schedule.clear()
+
+
+class TestSnapshot:
+    def test_reports_a_finished_analysis_without_waiting_for_the_next_sweep(self, swept):
+        # The reported bug: the row was written before `await start_analysis`
+        # and never rewritten, so a region that had just finished still read
+        # "never analyzed" for up to a full sweep interval. `last_processed_at`
+        # now comes from the database per request, so a sweep-old row is fine.
+        finished_at = NOW - timedelta(minutes=2)
+        rows = {r["name"]: r for r in snapshot({"alpha": finished_at}, NOW)}
+        assert rows["alpha"]["last_processed_at"] == finished_at.isoformat()
+        assert rows["alpha"]["state"] == "scheduled"
+
+    def test_region_never_analyzed_reports_null(self, swept):
+        rows = {r["name"]: r for r in snapshot({}, NOW)}
+        assert rows["alpha"]["last_processed_at"] is None
+
+    def test_state_is_derived_live_not_cached(self, swept):
+        # Nothing in the stored row says "analyzing"; it comes from the
+        # in-flight registry at read time.
+        assert snapshot({}, NOW)[0]["state"] != "analyzing"
+        rows = {r["name"]: r for r in snapshot({}, NOW + timedelta(hours=12))}
+        # The cached estimate went stale in place; the read reflects that.
+        assert rows["alpha"]["state"] == "awaiting_publication"
+
+    def test_soonest_first_with_unestimable_regions_last(self, swept):
+        assert [r["name"] for r in snapshot({}, NOW)] == ["alpha", "beta"]
+
+    def test_empty_before_the_first_sweep(self):
+        scheduler._schedule.clear()
+        assert snapshot({}, NOW) == []
 
 
 class TestScheduleState:
