@@ -37,6 +37,26 @@ def test_sighting_resolves_roi_label():
     }
 
 
+def test_sighting_passes_through_matched_false():
+    # A candidate-only sighting (this MMSI was the nearest candidate for a
+    # dark/indeterminate detection, but not the one actually matched). Guards
+    # against _sighting() coercing a boolean False via truthiness/bool() —
+    # it does not do the SQL-level NULL-vs-false coercion itself (that lives
+    # in SIGHTINGS_QUERY's COALESCE), so this only confirms the helper is a
+    # faithful passthrough.
+    row = {
+        "detection_id": 5,
+        "scene_id": "y",
+        "roi": "north_taiwan",
+        "sensed_at": datetime(2026, 7, 15, tzinfo=timezone.utc),
+        "match_state": "dark",
+        "is_dark": True,
+        "confidence": 0.7,
+        "matched": False,
+    }
+    assert _sighting(row)["matched"] is False
+
+
 def test_sighting_falls_back_to_roi_name_for_unknown_roi():
     row = {
         "detection_id": 1,

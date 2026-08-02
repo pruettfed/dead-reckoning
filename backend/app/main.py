@@ -255,7 +255,7 @@ SIGHTINGS_QUERY = text(
            d.match_state,
            d.is_dark,
            d.confidence,
-           (d.matched_mmsi = :mmsi) AS matched
+           COALESCE(d.matched_mmsi = :mmsi, false) AS matched
     FROM sar_detections d
     JOIN sar_scenes s ON s.id = d.scene_id
     WHERE (d.matched_mmsi = :mmsi OR d.candidate_mmsi = :mmsi)
