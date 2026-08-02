@@ -42,18 +42,38 @@ def mark_message(source: str) -> None:
     s.last_message_at = datetime.now(tz=timezone.utc)
 
 
+def _redact(reason: str) -> str:
+    """Strip configured secrets out of an error string.
+
+    `last_error` is served by the unauthenticated /api/health and rendered by
+    the frontend, so it must stay useful — but the AISStream key travels inside
+    the WebSocket subscribe payload, and any exception echoing that frame would
+    publish it. Scrub at this one choke point rather than suppressing the field.
+    """
+    settings = get_settings()
+    for secret in (
+        settings.aisstream_api_key,
+        settings.cdse_client_secret,
+        settings.analysis_api_key,
+        settings.devtools_api_key,
+    ):
+        if secret and secret in reason:
+            reason = reason.replace(secret, "***")
+    return reason
+
+
 def mark_disconnected(source: str, reason: str | None = None) -> None:
     s = _get_or_create(source)
     s.state = "disconnected"
     s.connected_since = None
     if reason:
-        s.last_error = reason
+        s.last_error = _redact(reason)
 
 
 def mark_error(source: str, reason: str) -> None:
     s = _get_or_create(source)
     s.error_count += 1
-    s.last_error = reason
+    s.last_error = _redact(reason)
 
 
 def snapshot(

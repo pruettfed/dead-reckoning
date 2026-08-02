@@ -1,8 +1,12 @@
 # API Reference
 
 Base URL (local): `http://localhost:8000`
-Swagger: `http://localhost:8000/docs`
+Swagger: `http://localhost:8000/docs` — served only when `ENV` is not `production`
 Base URL via Vite proxy: `http://localhost:5173` (proxies `/api` → backend)
+
+Two route groups do not exist in production at all: `POST /api/analysis/{roi}`
+and `/api/dev/*`. Both answer 404 there, with or without a valid key, and neither
+appears in the schema. Everything else is public and read-only.
 
 All responses are JSON except `GET /api/scenes/{id}/overview.png`, which returns
 `image/png`. Timestamps are ISO-8601 UTC.
@@ -127,7 +131,7 @@ Position history for one vessel, oldest → newest.
 
 ---
 
-## `POST /api/analysis/{roi}` 🔒 ops-only
+## `POST /api/analysis/{roi}` 🔒 **absent in production**
 
 Analyze the newest Sentinel-1 pass over the ROI: fetch pixels (Sentinel Hub
 Process API — **spends Processing Units**, ~100 PU per ROI), run YOLOv8 ship
@@ -135,15 +139,31 @@ detection, fuse against the AIS buffer, store the results.
 
 **This is not the routine path.** A background scheduler sweeps every region and
 analyzes each new usable pass automatically; nothing in the frontend can request
-imagery. This endpoint stays for operator recovery — backfilling a region,
-forcing a retry of a scene whose fetch already spent PU (which the scheduler
-refuses to repeat), or exercising a newly added region.
+imagery.
+
+**Not registered when `ENV=production`** — the path answers 404 there, with or
+without a valid key, and does not appear in the schema. Production exposes no
+endpoint that spends Processing Units, because two properties make a network-
+reachable spend button unsafe to leave standing:
+
+- it bypasses the scheduler's `PU_MONTHLY_CEILING`, and
+- a scene that fails *after* its pixel fetch is retried on every call, each retry
+  a fresh spend. The scheduler is protected from that by `scene_has_pu_spend`;
+  this path is not.
+
+In production, force a run over a shell instead — `backend/scripts/analyze.py`,
+which runs the same pipeline, prints the estimated cost, and warns when the scene
+was already paid for or when the run would cross the ceiling:
+
+```bash
+railway run python scripts/analyze.py north_taiwan
+```
+
+Outside production this endpoint remains available for operator recovery —
+backfilling a region, retrying a scene whose fetch already spent PU, or
+exercising a newly added region.
 
 **Auth:** header `X-Analysis-Key: <ANALYSIS_API_KEY>`.
-
-Note the scheduler's month-to-date `PU_MONTHLY_CEILING` does **not** gate this
-endpoint — a deliberate operator action is allowed to use the headroom the
-ceiling reserves.
 
 **Responses**
 
@@ -153,6 +173,7 @@ ceiling reserves.
 | 200  | Scene already processed — served from DB, 0 PU. |
 | 400  | Unknown ROI. |
 | 401  | Missing/wrong `X-Analysis-Key`. |
+| 404  | `ENV=production` — the route is not registered. |
 | 409  | Analysis already running for this ROI, or no eligible scene. Three causes: no pass in the last 3 days; none inside the AIS buffer (let AIS ingest a few hours first); or no pass imaging ≥85% of the ROI's `sar_bbox` — the swath only clipped it, and fetching would return a black chip. The message names which. All checked before any PU is spent. |
 | 503  | `ANALYSIS_API_KEY` unset, CDSE credentials unset, or model checkpoint missing (`backend/models/sar_ship.pt`, see `ml/README.md`). All checked **before** any PU is spent. |
 
@@ -323,16 +344,74 @@ dies mid-flight still counts — the PU is spent either way.
 
 ---
 
-## `DELETE /api/analyses` 🔒 ops-only
+## `/api/dev/*` developer tools — **absent in production**
 
-Deletes every SAR scene and detection across all regions; AIS data is kept
-(detections cascade via the `sar_detections` → `sar_scenes` FK). Returns
-`{ "scenes_deleted": n }`. **409** if any analysis is in flight.
+Reset endpoints for local iteration: SAR scenes, AIS data, and the PU ledger.
+They replace the old unscoped `DELETE /api/analyses`.
 
-**Auth:** header `X-Analysis-Key: <ANALYSIS_API_KEY>`.
+These routes are **not registered** unless `ENV` is `development` or `staging`
+*and* `DEVTOOLS_ENABLED=true` *and* `DEVTOOLS_API_KEY` is at least 32
+characters. In production they do not exist — every path below answers **404**,
+including with a valid key, and none appear in the OpenAPI schema. Setting
+`ENV=production` with `DEVTOOLS_ENABLED=true` refuses to boot.
 
-Note this does not clear `pu_ledger` — spend already happened, and the budget
-should not appear to reset because the results were discarded.
+**Auth:** header `X-Devtools-Key: <DEVTOOLS_API_KEY>`. Separate from
+`ANALYSIS_API_KEY` on purpose: a key that can read imagery should not also be
+able to empty tables. Rejected attempts are logged.
+
+The same operations are available without a key through
+`backend/scripts/dev_reset.py`, which talks to the database directly — that is
+the intended local path.
+
+> **Resets re-spend PU.** Deleting a scene makes the scheduler see its pass as
+> new, so the next sweep re-fetches and re-pays for that imagery. This is
+> intended. Set `SCHEDULER_ENABLED=false` first if you don't want the re-fetch.
+
+### `GET /api/dev/pu`
+
+Month-to-date PU against the ceiling, plus a per-ROI breakdown and the most
+recent ledger entries.
+
+```json
+{
+  "month_to_date_pu": 1073.0,
+  "pu_monthly_ceiling": 25000.0,
+  "pu_monthly_budget": 30000,
+  "remaining_under_ceiling": 23927.0,
+  "by_roi": [{ "roi": "skagen_kattegat", "pu": 215.0, "entries": 1, "last_spent_at": "…" }],
+  "recent": [{ "roi": "north_taiwan", "scene_id": "…", "pu": 185.2, "spent_at": "…" }],
+  "all_time_pu": 2066.0,
+  "all_time_entries": 28
+}
+```
+
+### `DELETE /api/dev/pu?scope=month|all&roi=<name>`
+
+Deletes ledger rows. `scope=month` (default) matches exactly the predicate the
+ceiling reads, so the number it moves is the number the scheduler checks.
+Returns `{ "entries_deleted": n, … }`.
+
+This clears *our* ledger, not Copernicus's meter — the real monthly quota does
+not come back.
+
+### `DELETE /api/dev/scenes?roi=<name>` · `?scene_id=<id>` · `?all=true`
+
+Deletes SAR scenes; detections cascade via the `sar_detections` → `sar_scenes`
+FK. AIS is untouched. Exactly one selector is required — a bare call is a
+**400**, never "delete everything". **409** if an analysis is in flight.
+
+Returns `scenes_deleted`, `rois_affected`, and `projected_pu_respend` — what
+the scheduler will spend re-fetching those regions.
+
+### `DELETE /api/dev/ais`
+
+Deletes every row in `ais_positions` **and** `ship_metadata`. Both, because the
+vessel endpoints `LEFT JOIN ship_metadata`, so keeping it would surface names
+for vessels that no longer exist.
+
+Afterwards fused regions stop analyzing until the AIS buffer refills:
+`find_target_scene` refuses a scene with no AIS in the ROI, and fusion needs
+`FUSION_MAX_TIME_DELTA_HOURS` of buffer before the acquisition.
 
 ---
 

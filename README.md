@@ -53,17 +53,53 @@ Analysis is optional and admin-gated (it spends Copernicus Processing Units). Th
 
 1. `AISSTREAM_API_KEY` — free at [aisstream.io](https://aisstream.io); without it there is no AIS buffer to fuse against.
 2. `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` — OAuth2 client credentials from [dataspace.copernicus.eu](https://dataspace.copernicus.eu).
-3. `ANALYSIS_API_KEY` — any secret string; callers pass it as `X-Analysis-Key`.
+3. `ANALYSIS_API_KEY` — a secret of at least 32 characters (production refuses to boot on a weaker one); callers pass it as `X-Analysis-Key`. Only used outside production.
 
 Then drop a trained checkpoint at `backend/models/sar_ship.pt` — the full Colab fine-tune runbook is in [`ml/README.md`](ml/README.md). The `backend/models/` directory is volume-mounted, so no rebuild is needed.
 
-Trigger an analysis (or set `VITE_ANALYSIS_API_KEY` in `frontend/.env` to get a dev-only button in the UI):
+Analysis is scheduled automatically; the frontend has no trigger and holds no key. To force a run:
 ```bash
+# any environment — the only way in production
+cd backend && .venv/bin/python scripts/analyze.py north_taiwan
+
+# outside production, the same thing over HTTP (404 when ENV=production)
 curl -X POST -H "X-Analysis-Key: $ANALYSIS_API_KEY" \
-  http://localhost:8000/api/analysis/singapore_strait
+  http://localhost:8000/api/analysis/north_taiwan
 ```
 
+Production exposes **no endpoint that spends Processing Units** — a network-reachable spend button bypasses `PU_MONTHLY_CEILING`, and a scene that fails after its pixel fetch would be re-bought on every retry.
+
 Full endpoint reference: [`docs/api.md`](docs/api.md).
+
+### Environments
+
+`ENV` selects the posture and **defaults to `production`**, so a forgotten value fails closed.
+
+| | `development` / `staging` | `production` |
+|---|---|---|
+| `/docs`, `/redoc`, `/openapi.json` | served | **404** |
+| CORS | all methods | `GET`, `OPTIONS` only |
+| `/api/dev/*` reset endpoints | available when enabled | **never registered** |
+| `POST /api/analysis/{roi}` (spends PU) | available | **never registered** |
+| `DEVTOOLS_ENABLED=true` | allowed | **refuses to boot** |
+| Weak `ANALYSIS_API_KEY` (<32 chars) | allowed | **refuses to boot** |
+
+Credentials are never echoed: any configured secret appearing in a connection error is redacted before `/api/health` serves it.
+
+### Developer reset tools
+
+Reset SAR scenes, AIS data, or the PU ledger while iterating. Locally, use the CLI — it talks to the database directly and needs no key:
+
+```bash
+cd backend
+.venv/bin/python scripts/dev_reset.py pu --show
+.venv/bin/python scripts/dev_reset.py scenes --roi north_taiwan --dry-run
+.venv/bin/python scripts/dev_reset.py ais
+```
+
+The same operations are exposed over HTTP at `/api/dev/*` for a remote non-production deploy, gated by `DEVTOOLS_ENABLED=true` and a `DEVTOOLS_API_KEY` of at least 32 characters. See [`docs/api.md`](docs/api.md).
+
+**Deleting scenes re-spends PU** — the scheduler treats the pass as new and re-fetches it. Set `SCHEDULER_ENABLED=false` first if you don't want that.
 
 ## Commands
 
@@ -92,11 +128,13 @@ Compose sets the first three automatically. For native dev (and for all secrets)
 |---|---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://dvd:dvd@db:5432/dvd` | Async Postgres connection string |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
-| `ENV` | `development` | Environment name |
+| `ENV` | `production` | `development`, `staging` or `production` — see [Environments](#environments) |
 | `AISSTREAM_API_KEY` | — | AIS WebSocket key (ingest disabled without it) |
 | `AIS_RETENTION_DAYS` | `2` | Rolling AIS history window |
 | `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` | — | Copernicus OAuth2 credentials for pixel fetch |
-| `ANALYSIS_API_KEY` | — | Shared secret gating `POST /api/analysis/{roi}` |
+| `ANALYSIS_API_KEY` | — | Shared secret gating `POST /api/analysis/{roi}` (non-production only) |
+| `DEVTOOLS_ENABLED` | `false` | Register `/api/dev/*`. Forbidden when `ENV=production` |
+| `DEVTOOLS_API_KEY` | — | Shared secret gating `/api/dev/*`; ≥32 chars or the router is skipped |
 | `MODEL_PATH` | `models/sar_ship.pt` | YOLOv8 checkpoint path |
 
 The complete contract lives in [`backend/.env.example`](backend/.env.example).

@@ -1,8 +1,12 @@
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# Shortest DEVTOOLS_API_KEY / ANALYSIS_API_KEY accepted. These keys guard a
+# pixel budget and an unscoped delete; a guessable one is worse than none.
+MIN_KEY_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -10,7 +14,11 @@ class Settings(BaseSettings):
 
     database_url: str = Field(alias="DATABASE_URL")
     cors_origins: Annotated[list[str], NoDecode] = Field(alias="CORS_ORIGINS")
-    env: str = Field(default="development", alias="ENV")
+    # Defaults to production so a forgotten ENV fails closed. Dev sets it
+    # explicitly — docker-compose.yml and .env.example both already do.
+    env: Literal["development", "staging", "production"] = Field(
+        default="production", alias="ENV"
+    )
 
     # AIS
     aisstream_api_key: str | None = Field(default=None, alias="AISSTREAM_API_KEY")
@@ -22,6 +30,11 @@ class Settings(BaseSettings):
     # SAR imagery
     cdse_client_id: str | None = Field(default=None, alias="CDSE_CLIENT_ID")
     cdse_client_secret: str | None = Field(default=None, alias="CDSE_CLIENT_SECRET")
+
+    # Developer reset tools. Both must be open for the /api/dev router to exist,
+    # and ENV=production forbids them outright — see devtools.py.
+    devtools_enabled: bool = Field(default=False, alias="DEVTOOLS_ENABLED")
+    devtools_api_key: str | None = Field(default=None, alias="DEVTOOLS_API_KEY")
 
     # SAR analysis pipeline
     analysis_api_key: str | None = Field(default=None, alias="ANALYSIS_API_KEY")
@@ -56,6 +69,49 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @property
+    def is_production(self) -> bool:
+        return self.env == "production"
+
+    @property
+    def devtools_available(self) -> bool:
+        """Whether the /api/dev router may be registered at all.
+
+        Deliberately not an error when the key is missing or short: the CLI
+        (scripts/dev_reset.py) talks to the database directly and needs no key,
+        so a fresh clone must still boot. main.py warns and skips the router.
+        """
+        return (
+            not self.is_production
+            and self.devtools_enabled
+            and len(self.devtools_api_key or "") >= MIN_KEY_LENGTH
+        )
+
+    @model_validator(mode="after")
+    def _check_production_invariants(self) -> "Settings":
+        """Refuse to boot a production process that is configured unsafely.
+
+        A misconfigured prod deploy must not start and quietly serve a
+        destructive surface; failing here is the loudest signal available.
+        """
+        if not self.is_production:
+            return self
+        if self.devtools_enabled:
+            raise ValueError(
+                "DEVTOOLS_ENABLED=true is forbidden when ENV=production: the "
+                "developer reset endpoints delete scenes, AIS and the PU ledger"
+            )
+        if any(origin == "*" for origin in self.cors_origins):
+            raise ValueError("CORS_ORIGINS may not contain '*' when ENV=production")
+        # An empty key is "not configured", which check_admin_key already
+        # answers with a 503. Only a set-but-weak key is a boot error.
+        if self.analysis_api_key and len(self.analysis_api_key) < MIN_KEY_LENGTH:
+            raise ValueError(
+                f"ANALYSIS_API_KEY must be at least {MIN_KEY_LENGTH} characters "
+                "when ENV=production"
+            )
+        return self
 
 
 @lru_cache

@@ -45,7 +45,11 @@ backend/
   models/               # drop trained checkpoint here (sar_ship.pt); volume-mounted, gitignored
   app/
     main.py             # FastAPI app, lifespan, AIS + scene/detection/analysis endpoints
-    config.py           # pydantic-settings Settings; NoDecode on CORS_ORIGINS list field
+    config.py           # pydantic-settings Settings; NoDecode on CORS_ORIGINS list field;
+                        # ENV (defaults production) + prod invariants that refuse to boot
+    security.py         # check_admin_key — constant-time key compare shared by main/devtools
+    devtools.py         # Dev-only resets (scenes/AIS/PU ledger) + the /api/dev router,
+                        # never registered when ENV=production
     database.py         # async engine, sessionmaker, Base, get_session() dependency
     models.py           # SQLAlchemy models — AISPosition, ShipMetadata, SarSceneRow, SarDetection, PuLedgerEntry
     ais.py              # Pure parsing — AISStream PositionReport → ParsedPosition; also Class B (types 18/19/24)
@@ -59,6 +63,11 @@ backend/
     landmask.py         # Coastline mask: flags detections on land, excluded before fusion
     pipeline.py         # Orchestration: find scene → fetch → detect → mask → fuse; next-pass estimate; PU ledger
     scheduler.py        # Automatic analysis sweep: new pass → analyze once, under a PU ceiling
+  scripts/
+    dev_reset.py        # Keyless CLI for the devtools.py resets (talks to the DB directly)
+    analyze.py          # Ops escape hatch: force one ROI's analysis. SPENDS PU.
+                        # The only way to force a run in production, which
+                        # registers no PU-spending HTTP route
   tests/                # pytest — pure-function tests only (no DB/network/torch)
 frontend/src/
   main.tsx              # React root, QueryClientProvider, leaflet CSS

@@ -1,25 +1,25 @@
 import asyncio
 import json
 import logging
-import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
-from app import fusion, landmask, pipeline, scheduler, sources
-from app.config import get_settings
+from app import devtools, fusion, landmask, pipeline, scheduler, sources
+from app.config import Settings, get_settings
 from app.database import Base, engine, get_session
 from app.detect import DetectorUnavailable, load_detector
 from app.ingest import run_ingest, run_retention
 from app.rois import ROI, ROIS, get_roi
 from app.scheduler import run_scheduler
+from app.security import check_admin_key
 
 settings = get_settings()
 logging.basicConfig(
@@ -58,15 +58,33 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await engine.dispose()
 
 
-app = FastAPI(title="Dark Vessel Detection API", lifespan=lifespan)
+# Production publishes no schema: /docs, /redoc and /openapi.json otherwise
+# advertise the admin routes and the header name that guards them.
+app = FastAPI(
+    title="Dark Vessel Detection API",
+    lifespan=lifespan,
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
+)
+# require_devtools_key reads settings from here rather than the module global,
+# so the request-time environment check is testable.
+app.state.settings = settings
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Nothing in the browser client sends credentials: apiGet uses bare fetch,
+    # which defaults to same-origin. Off, so a listed origin is not automatically
+    # a fully privileged one.
+    allow_credentials=False,
+    # The browser client is read-only. The dev router needs DELETE, so the
+    # permissive list survives only outside production.
+    allow_methods=["GET", "OPTIONS"] if settings.is_production else ["*"],
+    allow_headers=["Content-Type"] if settings.is_production else ["*"],
 )
+
+devtools.register_devtools(app, settings)
 
 
 @app.get("/api/health")
@@ -211,13 +229,6 @@ async def vessel_track(
     return [dict(r) for r in rows]
 
 
-def check_admin_key(provided: str | None, configured: str | None) -> None:
-    if not configured:
-        raise HTTPException(status_code=503, detail="analysis disabled: ANALYSIS_API_KEY not configured")
-    if not provided or not secrets.compare_digest(provided, configured):
-        raise HTTPException(status_code=401, detail="invalid or missing X-Analysis-Key header")
-
-
 async def require_analysis_key(
     x_analysis_key: Annotated[str | None, Header()] = None,
 ) -> None:
@@ -231,10 +242,19 @@ def _resolve_roi(roi: str) -> ROI:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.post(
+# Production has no PU-spending HTTP surface at all. A key that can spend money
+# should not be reachable over the network from the internet: this endpoint
+# bypasses PU_MONTHLY_CEILING, and a scene that fails *after* its pixel fetch can
+# be retried indefinitely, each retry a fresh spend (the scheduler is protected
+# from that by scene_has_pu_spend; this path never was). Forcing a run in
+# production is a shell action — scripts/analyze.py — not a request.
+ops_router = APIRouter()
+
+
+@ops_router.post(
     "/api/analysis/{roi}",
     dependencies=[Depends(require_analysis_key)],
-    summary="Admin-only: analyze the latest Sentinel-1 pass over an ROI (spends PU)",
+    summary="Non-production only: analyze the latest Sentinel-1 pass over an ROI (spends PU)",
 )
 async def trigger_analysis(roi: str, response: Response) -> dict:
     roi_obj = _resolve_roi(roi)
@@ -260,23 +280,19 @@ async def trigger_analysis(roi: str, response: Response) -> dict:
     return {"scene_id": scene.id, "status": "processing"}
 
 
-# Detections cascade via the sar_detections → sar_scenes FK; AIS is untouched.
-RESET_ANALYSES = text("DELETE FROM sar_scenes")
+def register_ops(app: FastAPI, settings: Settings) -> bool:
+    """Register the PU-spending trigger, except in production.
+
+    Returns whether it was registered. Mirrors devtools.register_devtools so
+    both gates are decidable without a database.
+    """
+    if settings.is_production:
+        return False
+    app.include_router(ops_router)
+    return True
 
 
-@app.delete(
-    "/api/analyses",
-    dependencies=[Depends(require_analysis_key)],
-    summary="Admin-only: delete every SAR scene and detection (AIS data is kept)",
-)
-async def reset_analyses(
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> dict:
-    if pipeline.any_in_flight():
-        raise HTTPException(status_code=409, detail="an analysis is running; wait for it to finish")
-    result = await session.execute(RESET_ANALYSES)
-    await session.commit()
-    return {"scenes_deleted": result.rowcount}
+register_ops(app, settings)
 
 
 SCENES_QUERY = text(

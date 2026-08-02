@@ -117,3 +117,39 @@ def test_multiple_sources_tracked_independently():
     assert snap["ais"]["state"] == "connected"
     assert snap["sar_sentinel1"]["state"] == "disconnected"
     assert set(snap.keys()) == {"ais", "sar_sentinel1"}
+
+
+class _FakeSettings:
+    """Only the fields _redact reads."""
+
+    aisstream_api_key = "super-secret-ais-key"
+    cdse_client_secret = "super-secret-cdse"
+    analysis_api_key = None
+    devtools_api_key = None
+
+
+@pytest.fixture
+def _fake_secrets(monkeypatch):
+    monkeypatch.setattr(sources, "get_settings", lambda: _FakeSettings())
+
+
+def test_last_error_redacts_configured_secrets(_fake_secrets):
+    # The AISStream key travels inside the subscribe frame, and last_error is
+    # served by the unauthenticated /api/health.
+    sources.mark_disconnected(
+        "ais", reason="handshake failed sending APIKey=super-secret-ais-key"
+    )
+    last_error = sources.snapshot(stale_after=60)["ais"]["last_error"]
+    assert "super-secret-ais-key" not in last_error
+    assert "***" in last_error
+    assert "handshake failed" in last_error  # the diagnostic itself survives
+
+
+def test_mark_error_redacts_too(_fake_secrets):
+    sources.mark_error("sar_sentinel1", "401 for secret super-secret-cdse")
+    assert "super-secret-cdse" not in sources.snapshot(stale_after=60)["sar_sentinel1"]["last_error"]
+
+
+def test_redaction_leaves_ordinary_errors_alone(_fake_secrets):
+    sources.mark_disconnected("ais", reason="connection reset by peer")
+    assert sources.snapshot(stale_after=60)["ais"]["last_error"] == "connection reset by peer"
