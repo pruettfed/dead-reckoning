@@ -1,10 +1,10 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -100,6 +100,7 @@ async def list_rois() -> list[dict]:
             "name": roi.name,
             "label": roi.label,
             "blurb": roi.blurb,
+            "passes_per_month": roi.passes_per_month,
             "ais_bbox": list(roi.ais_bbox),
             "sar_bbox": list(roi.sar_bbox),
             "mode": roi.mode,
@@ -241,6 +242,59 @@ async def vessel_track(
     # the whole track. Repeated per row to match the shape ship_name/ship_type/
     # callsign already have here.
     return [_with_flag(dict(r), mmsi) for r in rows]
+
+
+# Same MMSI seen across scenes. Scenes persist indefinitely while AIS positions
+# prune at AIS_RETENTION_DAYS, so this reaches much further back than a track.
+SIGHTINGS_QUERY = text(
+    """
+    SELECT d.id AS detection_id,
+           d.scene_id,
+           s.roi,
+           s.sensed_at,
+           d.match_state,
+           d.is_dark,
+           d.confidence,
+           (d.matched_mmsi = :mmsi) AS matched
+    FROM sar_detections d
+    JOIN sar_scenes s ON s.id = d.scene_id
+    WHERE (d.matched_mmsi = :mmsi OR d.candidate_mmsi = :mmsi)
+      AND NOT d.on_land
+    ORDER BY s.sensed_at DESC
+    LIMIT :limit
+    """
+)
+
+
+def _sighting(row: Mapping[str, Any]) -> dict:
+    roi = row["roi"]
+    known = ROIS.get(roi)
+    return {
+        "detection_id": row["detection_id"],
+        "scene_id": row["scene_id"],
+        "roi": roi,
+        "label": known.label if known else roi,
+        "sensed_at": row["sensed_at"],
+        "match_state": row["match_state"],
+        "is_dark": row["is_dark"],
+        "confidence": row["confidence"],
+        "matched": row["matched"],
+    }
+
+
+@app.get(
+    "/api/vessels/{mmsi}/sightings",
+    summary="Every SAR detection this MMSI matched or was a candidate for, newest first (free)",
+)
+async def vessel_sightings(
+    mmsi: int,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: int = Query(default=20, ge=1, le=100),
+) -> list[dict]:
+    rows = (
+        await session.execute(SIGHTINGS_QUERY, {"mmsi": mmsi, "limit": limit})
+    ).mappings().all()
+    return [_sighting(r) for r in rows]
 
 
 async def require_analysis_key(
