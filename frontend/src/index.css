@@ -1,148 +1,70 @@
-/* skeleton layout only — design pass comes later */
+* { box-sizing: border-box; }
 
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
+html, body, #root {
   height: 100%;
   margin: 0;
+  background: var(--dr-bg);
+  overflow: hidden;
 }
 
-.app {
-  display: flex;
-  height: 100%;
-  font-family: system-ui, sans-serif;
+body {
+  color: var(--dr-text);
+  font-family: var(--dr-sans);
 }
 
-.panel {
-  width: 340px;
-  flex-shrink: 0;
-  padding: 12px;
-  overflow-y: auto;
-  border-right: 1px solid #ccc;
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .12); }
+::-webkit-scrollbar-track { background: transparent; }
+
+.leaflet-container { background: var(--dr-map); font-family: var(--dr-mono); }
+.leaflet-control-attribution {
+  background: rgba(10, 11, 12, .7) !important;
+  color: #4a5459 !important;
+  font-size: 9px !important;
+}
+.leaflet-control-attribution a { color: #5c686e !important; }
+.leaflet-bar a {
+  background: rgba(16, 19, 22, .86) !important;
+  color: #9aa8ae !important;
+  border-color: rgba(255, 255, 255, .1) !important;
+  border-radius: 0 !important;
+}
+.leaflet-bar a:hover { background: rgba(30, 35, 39, .92) !important; }
+
+@keyframes dr-ring {
+  0% { transform: scale(.7); opacity: .7; }
+  100% { transform: scale(2.3); opacity: 0; }
+}
+@keyframes dr-flash {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+@keyframes dr-ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
-.panel h1 {
-  font-size: 1.2rem;
-  margin: 0;
-}
-
-.panel h2 {
-  font-size: 0.95rem;
-  margin: 1rem 0 0.25rem;
-}
-
-.map {
-  flex: 1;
-  height: 100%;
-}
-
-.muted {
-  color: #666;
-  font-size: 0.85rem;
-}
-
-.error {
-  color: #dc2626;
-  font-size: 0.85rem;
-}
-
-.survey-note {
-  border-left: 3px solid #f59e0b;
-  background: #fffbeb;
-  padding: 0.5rem 0.6rem;
-  margin: 0.5rem 0;
-  font-size: 0.8rem;
-  line-height: 1.4;
-}
-
-.opacity-control,
-.land-mask-control,
-.small-vessel-control {
-  display: block;
-  margin: 0.5rem 0;
-  font-size: 0.85rem;
-}
-
-.opacity-control input {
-  width: 100%;
-}
-
-.scene-list,
-.schedule-list,
-.source-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  font-size: 0.85rem;
-}
-
-.countdown {
-  font-size: 0.9rem;
-  margin: 0.25rem 0 0.5rem;
-  line-height: 1.4;
-}
-
-.schedule-item {
-  display: flex;
-  gap: 8px;
+.dr-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  outline: none;
   cursor: pointer;
-  padding: 6px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  margin-bottom: 4px;
 }
-
-.schedule-item.selected {
-  border-color: #2563eb;
-  background: #eff6ff;
+.dr-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  background: var(--thumb-color, #3a8dff);
+  border: none;
+  transform: rotate(45deg);
 }
-
-/* No countdown column — the whole width is the result. */
-.schedule-item.recent {
-  margin-bottom: 8px;
+.dr-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  background: var(--thumb-color, #3a8dff);
+  border: none;
+  border-radius: 0;
+  transform: rotate(45deg);
 }
-
-/* Fixed column so the countdowns line up as a schedule rather than ragged text. */
-.schedule-when {
-  flex: 0 0 4.5rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-
-.schedule-region {
-  flex: 1;
-  min-width: 0;
-}
-
-.scene-item {
-  cursor: pointer;
-  padding: 6px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  margin-bottom: 4px;
-}
-
-.scene-item.selected {
-  border-color: #2563eb;
-  background: #eff6ff;
-}
-
-.status-processed,
-.status-connected {
-  color: #16a34a;
-}
-
-.status-processing,
-.status-stale {
-  color: #d97706;
-}
-
-.status-failed,
-.status-error,
-.status-disconnected {
-  color: #dc2626;
-}
+.dr-slider::-moz-range-track { background: transparent; }

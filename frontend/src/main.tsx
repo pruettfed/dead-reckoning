@@ -6,8 +6,11 @@ import "leaflet/dist/leaflet.css";
 
 import App from "./App";
 import "./index.css";
+import { applyTheme } from "./theme";
 
 const queryClient = new QueryClient();
+
+applyTheme();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
