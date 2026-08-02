@@ -26,3 +26,4 @@ data/
 .claude/plans/
 docs/superpowers/specs/
 docs/superpowers/plans/
+.worktrees/
