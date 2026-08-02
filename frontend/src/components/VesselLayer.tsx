@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CircleMarker, Polyline, Popup } from "react-leaflet";
 
 import { apiGet } from "../api";
+import { flagEmoji } from "../flag";
 import { navStatusLabel } from "../navStatus";
 import { formatAge } from "../vesselAge";
 import type { TrackPoint, Vessel } from "../types";
@@ -65,6 +66,12 @@ export default function VesselLayer({
           >
             <Popup>
               <b>{v.ship_name ?? "unknown vessel"}</b> · MMSI {v.mmsi}
+              {v.flag_country && (
+                <>
+                  <br />
+                  {flagEmoji(v.flag_iso2)} {v.flag_country}
+                </>
+              )}
               <br />
               SOG {v.sog ?? "–"} kn · COG {v.cog ?? "–"}°
               {status && (

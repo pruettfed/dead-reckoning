@@ -95,10 +95,18 @@ Latest AIS position per vessel inside an ROI, within a trailing
 
 **Response** — array of vessel snapshots: `mmsi`, `time`, `lat`, `lon`, `sog`,
 `cog`, `ship_name`, `ship_type` (AIS code, table below), `callsign`,
-`nav_status`. Static fields are `null` until the vessel's `ShipStaticData`
-broadcast is seen. `nav_status` is the raw ITU-R M.1371 navigational status
-code (0-15) or `null` — the API never translates it; the frontend maps codes
-to labels ("at anchor", "moored", etc.) for display.
+`flag_iso2`, `flag_country`, `nav_status`. Static fields are `null` until the
+vessel's `ShipStaticData` broadcast is seen. `nav_status` is the raw ITU-R
+M.1371 navigational status code (0-15) or `null` — the API never translates it;
+the frontend maps codes to labels ("at anchor", "moored", etc.) for display.
+
+`flag_iso2` / `flag_country` are **not broadcast over AIS** — no AIS message
+carries a flag state. They are derived from the MMSI's ITU-R M.585 MID (its
+first three digits) and so are available immediately, without waiting for a
+static-data broadcast. Both are `null` when the MMSI is not a plain nine-digit
+ship station: craft associated with a parent ship (`98MID…`), aids to navigation
+(`99MID…`), SAR aircraft (`111MID…`) and SART/MOB/EPIRB beacons
+(`970`/`972`/`974…`) have no flag state and are never guessed at.
 
 ```bash
 curl "http://localhost:8000/api/vessels?roi=north_taiwan&at=2026-07-11T02:14:36Z"
@@ -127,7 +135,8 @@ Position history for one vessel, oldest → newest.
 | `hours` | integer | 12      | Trailing window; clamped to `24 × AIS_RETENTION_DAYS`.   |
 
 **Response** — array of `time`, `lat`, `lon`, `sog`, `cog`, `ship_name`,
-`ship_type`, `callsign`. Empty array if the MMSI has no rows in the window.
+`ship_type`, `callsign`, `flag_iso2`, `flag_country`. Empty array if the MMSI
+has no rows in the window.
 
 ---
 
@@ -255,6 +264,7 @@ Land-masked detections are omitted by default.
 | `match_distance_m`   | Distance to the matched AIS position                   |
 | `match_time_delta_s` | Signed seconds between AIS fix and acquisition         |
 | `ship_name`, `ship_type`, `callsign` | Static data of the matched vessel      |
+| `flag_iso2`, `flag_country` | Flag of the matched vessel, from its MMSI's ITU MID; `null` when dark, indeterminate, or matched to a non-ship-station MMSI |
 
 ---
 

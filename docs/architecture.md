@@ -53,6 +53,8 @@ backend/
     database.py         # async engine, sessionmaker, Base, get_session() dependency
     models.py           # SQLAlchemy models — AISPosition, ShipMetadata, SarSceneRow, SarDetection, PuLedgerEntry
     ais.py              # Pure parsing — AISStream PositionReport → ParsedPosition; also Class B (types 18/19/24)
+    flags.py            # Pure MMSI → flag state via the ITU MID table. AIS carries no
+                        # flag field; derived on read, never stored (no schema, no backfill)
     ingest.py           # Long-running tasks — run_ingest (WebSocket) + run_retention (hourly prune)
     rois.py             # Static ROI registry: ais_bbox (free, wide, coastal) vs
                         # sar_bbox (costs PU, small, on water) + fused/survey mode

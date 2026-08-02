@@ -32,6 +32,8 @@ export type Vessel = {
   ship_name: string | null;
   ship_type: number | null;
   callsign: string | null;
+  flag_iso2: string | null;
+  flag_country: string | null;
   // Raw ITU-R M.1371 code (0-15) or null; see navStatusLabel for display.
   nav_status: number | null;
 };
@@ -45,6 +47,8 @@ export type TrackPoint = {
   ship_name: string | null;
   ship_type: number | null;
   callsign: string | null;
+  flag_iso2: string | null;
+  flag_country: string | null;
 };
 
 export type Footprint = {
@@ -99,6 +103,10 @@ export type Detection = {
   ship_name: string | null;
   ship_type: number | null;
   callsign: string | null;
+  // Flag of the matched vessel; null for dark, indeterminate and survey
+  // detections, which matched no MMSI.
+  flag_iso2: string | null;
+  flag_country: string | null;
 };
 
 export type NextPass = {

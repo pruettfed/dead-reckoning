@@ -1,5 +1,6 @@
 import { CircleMarker, ImageOverlay, Polygon, Popup } from "react-leaflet";
 
+import { flagEmoji } from "../flag";
 import type { Bbox, Detection, Footprint, Roi, Scene } from "../types";
 
 function toLatLng(ring: number[][]): [number, number][] {
@@ -88,6 +89,12 @@ export default function SceneLayer({
             {d.matched_mmsi !== null && (
               <>
                 matched: {d.ship_name ?? "unknown"} (MMSI {d.matched_mmsi})
+                {d.flag_country && (
+                  <>
+                    {" "}
+                    · {flagEmoji(d.flag_iso2)} {d.flag_country}
+                  </>
+                )}
                 <br />
                 {d.match_distance_m?.toFixed(0)} m from its dead-reckoned position
                 {d.match_time_delta_s !== null && (

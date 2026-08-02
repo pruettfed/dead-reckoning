@@ -16,6 +16,7 @@ from app import devtools, fusion, landmask, pipeline, scheduler, sources
 from app.config import Settings, get_settings
 from app.database import Base, engine, get_session
 from app.detect import DetectorUnavailable, load_detector
+from app.flags import flag_for_mmsi
 from app.ingest import run_ingest, run_retention
 from app.rois import ROI, ROIS, get_roi
 from app.scheduler import run_scheduler
@@ -139,6 +140,16 @@ async def vessel_count(
     return {"count": row["count"]}
 
 
+def _with_flag(row: dict, mmsi: int | None) -> dict:
+    """Add the vessel's flag state, resolved from its MMSI.
+    """
+    flag = flag_for_mmsi(mmsi) if mmsi is not None else None
+    return row | {
+        "flag_iso2": flag.iso2 if flag else None,
+        "flag_country": flag.country if flag else None,
+    }
+
+
 VESSELS_QUERY = text(
     """
     SELECT DISTINCT ON (p.mmsi)
@@ -192,7 +203,7 @@ async def list_vessels(
             },
         )
     ).mappings().all()
-    return [dict(r) for r in rows]
+    return [_with_flag(dict(r), r["mmsi"]) for r in rows]
 
 
 TRACK_QUERY = text(
@@ -226,7 +237,10 @@ async def vessel_track(
     rows = (
         await session.execute(TRACK_QUERY, {"mmsi": mmsi, "hours": hours})
     ).mappings().all()
-    return [dict(r) for r in rows]
+    # Track rows carry no mmsi column — it's the path param, and constant for
+    # the whole track. Repeated per row to match the shape ship_name/ship_type/
+    # callsign already have here.
+    return [_with_flag(dict(r), mmsi) for r in rows]
 
 
 async def require_analysis_key(
@@ -369,7 +383,9 @@ async def scene_detections(
             DETECTIONS_QUERY, {"scene_id": scene_id, "include_land": include_land}
         )
     ).mappings().all()
-    return [dict(r) for r in rows]
+    # Dark, indeterminate and survey detections matched no vessel, so they have
+    # no MMSI and correctly carry no flag.
+    return [_with_flag(dict(r), r["matched_mmsi"]) for r in rows]
 
 
 @app.get(
