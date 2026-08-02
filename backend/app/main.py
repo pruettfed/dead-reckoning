@@ -105,7 +105,7 @@ VESSEL_COUNT_QUERY = text(
 @app.get("/api/vessels/count", summary="Count vessels with a position update in the given ROI within VESSEL_ACTIVE_MINUTES")
 async def vessel_count(
     session: Annotated[AsyncSession, Depends(get_session)],
-    roi: str = Query(default="singapore_strait"),
+    roi: str = Query(default="north_taiwan"),
 ) -> dict:
     try:
         roi_obj = get_roi(roi)
@@ -151,7 +151,7 @@ VESSELS_QUERY = text(
 async def list_vessels(
     session: Annotated[AsyncSession, Depends(get_session)],
     at: datetime | None = Query(default=None, description="ISO-8601; defaults to now (UTC)"),
-    roi: str = Query(default="singapore_strait"),
+    roi: str = Query(default="north_taiwan"),
 ) -> list[dict]:
     try:
         roi_obj = get_roi(roi)
@@ -303,7 +303,7 @@ SCENES_QUERY = text(
 @app.get("/api/scenes")
 async def list_scenes(
     session: Annotated[AsyncSession, Depends(get_session)],
-    roi: str = Query(default="singapore_strait"),
+    roi: str = Query(default="north_taiwan"),
     limit: int = Query(default=10, ge=1, le=50),
 ) -> list[dict]:
     roi_obj = _resolve_roi(roi)
@@ -388,7 +388,7 @@ async def scene_overview(
 @app.get("/api/analysis/next-pass", summary="Latest and expected Sentinel-1 pass times for an ROI (free)")
 async def analysis_next_pass(
     session: Annotated[AsyncSession, Depends(get_session)],
-    roi: str = Query(default="singapore_strait"),
+    roi: str = Query(default="north_taiwan"),
 ) -> dict:
     roi_obj = _resolve_roi(roi)
     info = await pipeline.next_pass_info(roi_obj)

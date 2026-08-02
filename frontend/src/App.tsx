@@ -11,7 +11,7 @@ import type { Detection, Health, Roi, Scene } from "./types";
 
 export default function App() {
   // Default to the ROI with reliable AISStream coverage so the demo lands on live data
-  const [roi, setRoi] = useState("singapore_strait");
+  const [roi, setRoi] = useState("north_taiwan");
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [overlayOpacity, setOverlayOpacity] = useState(0.75);
   // Off by default: masked hits are rocks and shore structures. On, they are the

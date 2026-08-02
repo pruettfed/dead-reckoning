@@ -31,12 +31,12 @@ renders a cached fleet, so zoom in before trusting it).
 | Skagen / Kattegat | **75** | ✅ ROI `skagen_kattegat` |
 | Bosphorus / Marmara | **45** | ✅ ROI `bosphorus_marmara` |
 | Gulf of Finland | **39** | ✅ ROI `gulf_of_finland` |
-| Singapore Strait | **29** | ✅ ROI `singapore_strait` (demo default) |
-| North Taiwan / ECS | **20** | ✅ ROI `north_taiwan` |
+| Singapore Strait | **29** | ❌ dropped 2026-08-02 — inconsistent against its own AIS ground truth, weak CV recall given traffic density; `north_taiwan` is now the demo default |
+| North Taiwan / ECS | **20** | ✅ ROI `north_taiwan` (demo default since 2026-08-02) |
 | Malta / Hurd Bank | **3–5** | ✅ ROI `malta_hurds_bank` (thin but alive; strongest dark-STS narrative) |
 | Cyprus east (Limassol) | 12 | viable, not selected |
 | Rotterdam | dense | viable, weak dark-vessel narrative |
-| Fujairah / Gulf of Oman | 0 | ↻ now `fujairah_anchorage` (survey mode) |
+| Fujairah / Gulf of Oman | 0 | ❌ dropped 2026-08-02 (was `fujairah_anchorage`, survey mode) — `hormuz_strait` carries the Strait-of-Hormuz/Gulf-of-Oman narrative alongside `musandam_stage` and `kharg_island` |
 | Taiwan Strait mid-channel | 0–1 | ❌ dropped (was `taiwan_strait`) |
 | Spratly Islands | 0 | ❌ dropped (open ocean — terrestrial AIS will never cover it) |
 | NE Black Sea (Kerch) | 0 | ↻ now `kerch_strait` (survey mode) |
@@ -70,9 +70,10 @@ out exactly the places vessels go dark. Regions therefore declare a `mode`:
 | Claim | "this vessel is running dark" | "this many vessels were here at 06:12Z" |
 
 Survey regions still subscribe an `ais_bbox`, because AIS costs nothing and a
-region should be promoted on evidence rather than assumption. `eopl_tompok_utara`
-is the likeliest candidate — its box reaches west toward the Singapore receivers
-that feed `singapore_strait`.
+region should be promoted on evidence rather than assumption. `syria_coast_sts`
+was the first to be promoted this way (2026-08-02, see below).
+`eopl_tompok_utara` is next in line — its box reaches west toward the
+Singapore Strait receivers.
 
 A survey region is not a weaker fused region. When ~57% of Strait of Hormuz
 transits ran dark through 2026, a per-pass count of what radar actually sees is
@@ -122,6 +123,27 @@ select xb, count(distinct mmsi) from pts group by xb order by xb;  -- then yb
 All 5 other fused regions, and every enlarged 2026-07-26 candidate box, were
 checked with this method — gentle gradients only, no comparable cliff.
 
+## Promoting a survey region: the same check applies (2026-08-02)
+
+`syria_coast_sts` had shown only 4 vessels in its `ais_bbox` on 2026-07-26 —
+too thin to promote. By 2026-08-02 that had grown to 38 over a 3 h window, a
+real signal. But the aggregate count over `ais_bbox` isn't the number that
+matters for a `fused` claim — only 8 of those 38 fell inside the actual
+`sar_bbox` (35.50, 35.00, 35.95, 35.45); the rest clustered just south, around
+the Tartus naval/commercial port. That's the same receiver-alignment gap as
+the `bosphorus_marmara` cliff above: most of the imaged area would have read
+"dark" purely because AIS didn't reach it, not because vessels were dark.
+
+**Fix:** shifted `sar_bbox` south to `(35.55, 34.80, 36.00, 35.30)`, covering
+both Baniyas and Tartus. 37/38 vessels now fall inside it, and the 5-bucket
+density check shows a gradient rather than a cliff. SAR coverage held at
+20/20 usable passes, 100% median — re-probed with `probe_regions.py` before
+promoting, per the rule above.
+
+**Takeaway:** an aggregate `ais_bbox` count is a screening signal, not a
+promotion criterion. Before flipping `mode` to `fused`, check vessel density
+*inside `sar_bbox` specifically*, not just somewhere in the wider box.
+
 ## SAR coverage constrains regions too (measured 2026-07-21)
 
 AIS is not the only thing that can be absent, and the SAR failure mode is
@@ -169,7 +191,7 @@ values that have drifted, and warns on regions with too few usable passes.
 
 The canonical, per-region version of this narrative now lives in the `blurb`
 field on each `ROI` in `backend/app/rois.py` (exposed via `GET /api/rois`) —
-covers all 14 regions, fused and survey. Summary:
+covers all 12 regions, fused and survey. Summary:
 
 - **Gulf of Finland** — every Russian shadow-fleet tanker loading at
   Primorsk/Ust-Luga transits this corridor; documented AIS manipulation.
@@ -181,20 +203,20 @@ covers all 14 regions, fused and survey. Summary:
   of sanctioned crude in the central Mediterranean.
 - **North Taiwan / ECS** — gray-zone activity north of Taiwan, including the
   subsea-cable interference incidents off Keelung; AIS spoofing documented.
-- **Singapore Strait** — densest coverage; the always-works demo region. Its
-  story is weaker-in-kind than the Gulf regions — not a conflict zone, but a
-  documented IMB piracy/armed-robbery hotspot and a waypoint for sanctioned
-  Iran/Venezuela crude STS transfers nearby. Kept as the demo region with
-  that framing stated honestly rather than oversold.
-- **Strait of Hormuz / Gulf of Oman** (`hormuz_strait` + `fujairah_anchorage`
-  + `musandam_stage` + `kharg_island`) — presented as one story across four
-  boxes rather than merged into one, because a literal merge was tested and
-  rejected (median SAR coverage collapses to 36–58% across the combined
-  extent — the sub-areas sit on different swath geometry). `hormuz_strait`
-  is the transit chokepoint itself, `fujairah_anchorage` is where tankers
-  wait or transfer cargo before/after transiting, `kharg_island` is the
-  upstream export terminal, and `musandam_stage` is the queuing area on the
-  peninsula that pinches the strait.
+  Demo default since 2026-08-02 (replacing `singapore_strait`, dropped —
+  see the probe table above).
+- **Syrian Coast (Baniyas / Tartus)** — ship-to-ship transfers moving
+  sanctioned Syrian and Iranian crude since the civil war; promoted from
+  survey to fused 2026-08-02 (see the promotion section above).
+- **Strait of Hormuz / Gulf of Oman** (`hormuz_strait` + `musandam_stage` +
+  `kharg_island`) — presented as one story across three boxes rather than
+  merged into one, because a literal merge was tested and rejected (median
+  SAR coverage collapses to 36–58% across the combined extent — the
+  sub-areas sit on different swath geometry). `hormuz_strait` is the transit
+  chokepoint itself, `kharg_island` is the upstream export terminal, and
+  `musandam_stage` is the queuing area on the peninsula that pinches the
+  strait. `fujairah_anchorage` covered the waiting/STS-transfer anchorage
+  south of the strait but was dropped 2026-08-02.
 
 ## Alternative AIS sources considered
 

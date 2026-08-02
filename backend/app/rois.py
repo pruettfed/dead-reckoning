@@ -67,26 +67,7 @@ class ROI:
 # boxes are now placed for coverage first, cost second, subject to the
 # 85% SAR floor and constraint 3 above.
 ROIS: dict[str, ROI] = {
-    # ---- fused: AIS verified live, 2026-07-11/12; boxes retuned 2026-07-26 ----
-    "singapore_strait": ROI(
-        name="singapore_strait",
-        label="Singapore Strait",
-        ais_bbox=(103.45, 0.95, 104.20, 1.40),
-        # Shrunk to mid-channel: old box was 32.6% land, this is 24.9%, at
-        # near-identical vessel count (1241 vs 1238) since the trimmed strip
-        # was pure land — costs less too (277 -> ~217 PU/mo).
-        sar_bbox=(103.55, 1.03, 104.10, 1.28),
-        mode="fused",
-        passes_per_month=5,
-        blurb=(
-            "The world's busiest strait by tonnage — persistent armed "
-            "robbery/piracy (an IMB-documented hotspot) and its role as a "
-            "waypoint for sanctioned Iranian and Venezuelan crude moved "
-            "ship-to-ship in nearby Malaysian and Indonesian waters make it "
-            "worth watching, even though it isn't a conflict zone in the way "
-            "the Gulf regions are."
-        ),
-    ),
+    # ---- fused: AIS verified live, 2026-07-11/12; boxes retuned 2026-07-26/2026-08-02 ----
     "north_taiwan": ROI(
         name="north_taiwan",
         label="North Taiwan / ECS approaches",
@@ -94,9 +75,12 @@ ROIS: dict[str, ROI] = {
         # Shifted onto the actual Keelung approach corridor: old box sat in
         # near-empty water offshore (175 vessels/2d); this sits on the
         # traffic (316 vessels/2d) and is *less* land (9.5% -> 3.3%).
-        sar_bbox=(121.20, 24.95, 122.20, 25.60),
+        # 2026-08-02: nudged west to pick up more of the west-coast approach;
+        # coverage held at 98% median / 7 usable passes all the way out to
+        # 120.50, so this is a conservative slice of that headroom (probed).
+        sar_bbox=(120.90, 24.95, 122.20, 25.60),
         mode="fused",
-        passes_per_month=8,
+        passes_per_month=7,
         blurb=(
             "Gray-zone pressure zone north of Taiwan — the corridor where "
             "Chinese-linked vessels have been implicated in subsea-cable "
@@ -107,13 +91,21 @@ ROIS: dict[str, ROI] = {
     "gulf_of_finland": ROI(
         name="gulf_of_finland",
         label="Gulf of Finland (shadow-fleet corridor)",
-        ais_bbox=(24.50, 59.20, 28.60, 60.30),
+        # Widened north edge to keep ais_bbox strictly containing the
+        # enlarged sar_bbox below (2026-08-02).
+        ais_bbox=(24.50, 59.20, 28.60, 60.40),
         # Shifted north onto the real shipping lane: old box sat south of it
         # (35 vessels/2d, mostly empty water); this sits on the lane
         # (144 vessels/2d), land% negligible (~0.1%).
-        sar_bbox=(25.20, 59.75, 27.60, 60.15),
+        # 2026-08-02: enlarged north/south — this region's swath geometry
+        # tolerates a lot of along-track growth without losing coverage
+        # (probed 59.45-60.28: still 20/39 usable at 91% median, vs 20/39 at
+        # 92% for the old box); east/west growth was tried and does cost
+        # usable passes (a few marginal scenes drop below the 85% floor), so
+        # left alone.
+        sar_bbox=(25.20, 59.45, 27.60, 60.28),
         mode="fused",
-        passes_per_month=22,
+        passes_per_month=20,
         blurb=(
             "The Baltic exit corridor for Russia's shadow fleet — aging, "
             "opaquely-owned tankers moving sanctioned crude out of Primorsk "
@@ -174,37 +166,53 @@ ROIS: dict[str, ROI] = {
             "refineries."
         ),
     ),
+    "syria_coast_sts": ROI(
+        name="syria_coast_sts",
+        label="Syrian Coast (Baniyas / Tartus STS)",
+        # Promoted from survey 2026-08-02: live AIS grew 4 -> 38 vessels in
+        # the ais_bbox, but the old sar_bbox (35.50,35.00,35.95,35.45) only
+        # reached 8 of those 38 — the rest clustered just south, around
+        # Tartus. Same receiver-alignment gap that caused the
+        # bosphorus_marmara false-dark bug, so the box was shifted south to
+        # cover both Baniyas and Tartus (probed: 37/38 vessels now inside
+        # sar_bbox, 5-bucket density check shows a gentle gradient rather
+        # than a cliff). SAR coverage held at 20/20 usable, 100% median.
+        ais_bbox=(35.40, 34.65, 36.15, 35.50),
+        sar_bbox=(35.55, 34.80, 36.00, 35.30),
+        mode="fused",
+        passes_per_month=20,
+        blurb=(
+            "Ship-to-ship transfers at the Baniyas terminal and the "
+            "Tartus naval/commercial port just south of it have been a "
+            "documented mechanism for moving sanctioned Syrian and Iranian "
+            "crude since the civil war."
+        ),
+    ),
     # ---- survey: no terrestrial AIS; vessel presence only, never "dark" ----
     "hormuz_strait": ROI(
         name="hormuz_strait",
         label="Strait of Hormuz (TSS)",
-        ais_bbox=(55.85, 26.10, 56.95, 26.90),
+        # Widened on every side to keep strict containment of the enlarged
+        # sar_bbox below (2026-08-02).
+        ais_bbox=(55.65, 26.00, 56.95, 27.00),
         # Enlarged onto the TSS lanes (98% median coverage, 14 usable/mo) —
         # PU headroom spent here since it's the anchor of the Hormuz/Oman
         # story; a literal merge with fujairah_anchorage/musandam_stage into
         # one box was tried and rejected (median coverage collapses to
-        # 36-58% — different swath geometry per sub-area).
-        sar_bbox=(56.20, 26.20, 56.80, 26.80),
+        # 36-58% — different swath geometry per sub-area). fujairah_anchorage
+        # was dropped 2026-08-02 (see note below); this box is unrelated to
+        # that decision.
+        # 2026-08-02: enlarged west (probed) — usable passes drop 12 -> 10 as
+        # a couple of marginal scenes fall below the 85% floor on the wider
+        # box, but median coverage stays 95-99%, so still solid.
+        sar_bbox=(55.95, 26.15, 56.85, 26.85),
         mode="survey",
-        passes_per_month=14,
+        passes_per_month=10,
         blurb=(
             "About a fifth of global oil transits this 33km-wide "
             "chokepoint, and Iran has repeatedly seized or harassed tankers "
             "here amid sanctions tensions. No terrestrial AIS reaches it, so "
             "this is presence monitoring, not a dark-vessel claim."
-        ),
-    ),
-    "fujairah_anchorage": ROI(
-        name="fujairah_anchorage",
-        label="Fujairah / Khor Fakkan Anchorage (STS hub)",
-        ais_bbox=(56.20, 24.95, 56.90, 25.65),
-        sar_bbox=(56.265, 25.33, 56.535, 25.57),
-        mode="survey",
-        passes_per_month=16,
-        blurb=(
-            "The anchorage south of Hormuz where tankers wait, disguise "
-            "cargo, or transfer it ship-to-ship before or after transiting "
-            "the strait — the other half of the same oil-chokepoint story."
         ),
     ),
     "musandam_stage": ROI(
@@ -235,18 +243,18 @@ ROIS: dict[str, ROI] = {
     "eopl_tompok_utara": ROI(
         name="eopl_tompok_utara",
         label="EOPL / Tompok Utara (STS anchorage)",
-        # Extended west toward Johor and the Singapore receivers that feed
-        # singapore_strait — the one survey region with a plausible path to fused.
+        # Extended west toward Johor and the Singapore Strait receivers.
         ais_bbox=(104.30, 1.10, 105.15, 1.80),
         sar_bbox=(104.65, 1.25, 105.10, 1.70),
         mode="survey",
         passes_per_month=5,
         blurb=(
             "A known ship-to-ship anchorage off eastern Malaysia for "
-            "sanctioned Iranian and Venezuelan crude, and the survey region "
-            "closest to real AIS coverage — its box reaches toward the "
-            "Singapore receivers, so it's the likeliest candidate to promote "
-            "to fused if one ever appears."
+            "sanctioned Iranian and Venezuelan crude, and one of the survey "
+            "regions closest to real AIS coverage — its box reaches toward "
+            "the Singapore Strait receivers, so it's a plausible candidate "
+            "to promote to fused on further evidence (syria_coast_sts was "
+            "promoted first, 2026-08-02)."
         ),
     ),
     "kerch_strait": ROI(
@@ -262,24 +270,17 @@ ROIS: dict[str, ROI] = {
             "with usable AIS."
         ),
     ),
-    "syria_coast_sts": ROI(
-        name="syria_coast_sts",
-        label="Syrian Coast (Baniyas STS)",
-        ais_bbox=(35.40, 34.90, 36.00, 35.50),
-        sar_bbox=(35.50, 35.00, 35.95, 35.45),
-        mode="survey",
-        passes_per_month=20,
-        blurb=(
-            "Ship-to-ship transfers at the Baniyas terminal have been a "
-            "documented mechanism for moving sanctioned Syrian and Iranian "
-            "crude since the civil war."
-        ),
-    ),
     "somali_coast": ROI(
         name="somali_coast",
         label="NE Somalia Coast",
-        ais_bbox=(50.50, 8.50, 51.50, 9.30),
-        sar_bbox=(51.02, 8.76, 51.38, 9.09),
+        # Widened north/south to keep strict containment of the enlarged
+        # sar_bbox below (2026-08-02).
+        ais_bbox=(50.50, 8.40, 51.50, 9.45),
+        # 2026-08-02: enlarged north/south (probed) — 8.60-9.25 holds the
+        # same 10/15 usable passes at 86% median as the old box; pushing
+        # further (8.50-9.35) drops usable to 7, so this is the largest
+        # step that doesn't cost coverage.
+        sar_bbox=(51.02, 8.60, 51.38, 9.25),
         mode="survey",
         passes_per_month=10,
         blurb=(
@@ -295,6 +296,17 @@ ROIS: dict[str, ROI] = {
 # covered a median 3% of the box, with only 3/11 usable. No resize fixed it; the
 # nearest workable placement was the Berbera coast, which is a different subject.
 # `somali_coast` carries the Horn of Africa narrative instead.
+#
+# Dropped 2026-08-02: `singapore_strait` (ais 103.45,0.95,104.20,1.40 / sar
+# 103.55,1.03,104.10,1.28). Removed on user judgment — the region read as
+# inconsistent against its own AIS ground truth and CV recall was weak given
+# how dense the traffic is. `north_taiwan` is the new default ROI everywhere
+# it was hardcoded (backend query defaults, frontend initial state).
+#
+# Dropped 2026-08-02: `fujairah_anchorage` (ais 56.20,24.95,56.90,25.65 / sar
+# 56.265,25.33,56.535,25.57). Removed on user judgment. `hormuz_strait` still
+# carries the Strait-of-Hormuz/Gulf-of-Oman narrative alongside
+# `musandam_stage` and `kharg_island`.
 
 
 def get_roi(name: str) -> ROI:

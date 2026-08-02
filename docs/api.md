@@ -54,12 +54,12 @@ ingestion always covers all of them simultaneously (switching ROI is a view filt
 
 ```json
 [
-  { "name": "singapore_strait", "label": "Singapore Strait",
-    "ais_bbox": [103.55, 1.03, 104.10, 1.35], "sar_bbox": [103.55, 1.03, 104.10, 1.35], "mode": "fused" },
+  { "name": "north_taiwan",     "label": "North Taiwan / ECS approaches",
+    "ais_bbox": [120.70, 24.90, 122.40, 26.30], "sar_bbox": [120.90, 24.95, 122.20, 25.60], "mode": "fused" },
   { "name": "gulf_of_finland",  "label": "Gulf of Finland (shadow-fleet corridor)",
-    "ais_bbox": [24.50, 59.20, 28.60, 60.30], "sar_bbox": [24.60, 59.55, 27.40, 60.05], "mode": "fused" },
+    "ais_bbox": [24.50, 59.20, 28.60, 60.40], "sar_bbox": [25.20, 59.45, 27.60, 60.28], "mode": "fused" },
   { "name": "hormuz_strait",    "label": "Strait of Hormuz (TSS)",
-    "ais_bbox": [55.90, 26.15, 56.75, 26.85], "sar_bbox": [56.15, 26.35, 56.65, 26.70], "mode": "survey" }
+    "ais_bbox": [55.65, 26.00, 56.95, 27.00], "sar_bbox": [55.95, 26.15, 56.85, 26.85], "mode": "survey" }
 ]
 ```
 
@@ -86,7 +86,7 @@ Latest AIS position per vessel inside an ROI, within a trailing
 
 | Param | Type            | Default            | Description                          |
 |-------|-----------------|--------------------|--------------------------------------|
-| `roi` | string          | `singapore_strait` | ROI name; unknown name → 400         |
+| `roi` | string          | `north_taiwan`      | ROI name; unknown name → 400         |
 | `at`  | ISO-8601 string | now                | Positions as of this UTC moment. The frontend sets this to a SAR scene's `sensed_at` to show vessels at acquisition time. |
 
 **Response** — array of vessel snapshots: `mmsi`, `time`, `lat`, `lon`, `sog`,
@@ -108,7 +108,7 @@ Distinct vessels active in the ROI in the last `VESSEL_ACTIVE_MINUTES`.
 
 | Param | Type   | Default            |
 |-------|--------|--------------------|
-| `roi` | string | `singapore_strait` |
+| `roi` | string | `north_taiwan` |
 
 **Response** `{ "count": 42 }`
 
@@ -158,7 +158,7 @@ ceiling reserves.
 
 ```bash
 curl -X POST -H "X-Analysis-Key: $ANALYSIS_API_KEY" \
-  http://localhost:8000/api/analysis/singapore_strait
+  http://localhost:8000/api/analysis/north_taiwan
 ```
 
 ---
@@ -169,7 +169,7 @@ Analyzed (and in-flight) SAR scenes for an ROI, newest first.
 
 | Param   | Type    | Default            |
 |---------|---------|--------------------|
-| `roi`   | string  | `singapore_strait` |
+| `roi`   | string  | `north_taiwan`      |
 | `limit` | integer | 10 (max 50)        |
 
 **Response** — array of scene objects:
@@ -243,7 +243,7 @@ Free (0 PU) pass timing for an ROI, from the CDSE catalog. Cached 10 minutes.
 
 | Param | Type   | Default            |
 |-------|--------|--------------------|
-| `roi` | string | `singapore_strait` |
+| `roi` | string | `north_taiwan` |
 
 ```json
 {

@@ -4,21 +4,19 @@ from app.rois import ROIS, get_roi
 from app.sar import PU_MONTHLY_BUDGET, estimate_pu, plan_fetch_grid
 
 FUSED = {
-    "singapore_strait",
     "north_taiwan",
     "gulf_of_finland",
     "skagen_kattegat",
     "bosphorus_marmara",
     "malta_hurds_bank",
+    "syria_coast_sts",
 }
 SURVEY = {
     "hormuz_strait",
-    "fujairah_anchorage",
     "musandam_stage",
     "kharg_island",
     "eopl_tompok_utara",
     "kerch_strait",
-    "syria_coast_sts",
     "somali_coast",
 }
 
@@ -70,7 +68,7 @@ def test_monthly_pu_within_budget():
 
 
 def test_get_roi_returns_known():
-    assert get_roi("singapore_strait").label == "Singapore Strait"
+    assert get_roi("north_taiwan").label == "North Taiwan / ECS approaches"
 
 
 def test_get_roi_unknown_raises():
