@@ -2,16 +2,21 @@ import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 
 import { apiGet } from "./api";
+import DetectionLayer from "./components/DetectionLayer";
 import LeftRail from "./components/LeftRail";
+import MapView from "./components/MapView";
 import NextAcquisition from "./components/NextAcquisition";
 import PassHistory from "./components/PassHistory";
 import RegionList from "./components/RegionList";
 import StatusBar from "./components/StatusBar";
 import TopBar from "./components/TopBar";
+import TrackLayer from "./components/TrackLayer";
 import { HazardBar } from "./components/ui";
+import VesselLayer from "./components/VesselLayer";
+import { contactMmsi, contactState } from "./contactState";
 import { useNow } from "./countdown";
-import { C, MONO, hexA } from "./theme";
-import type { Health, Roi, Schedule, Scene } from "./types";
+import { C, MONO, hexA, stateColor } from "./theme";
+import type { Detection, Health, Roi, Schedule, Scene } from "./types";
 
 export type Selection = { kind: "det" | "ais"; id: number } | null;
 
@@ -40,6 +45,12 @@ export default function App() {
   const [sceneId, setSceneId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [passExpanded, setPassExpanded] = useState(false);
+  const [selected, setSelected] = useState<Selection>(null);
+  // Setters unused until Task 8's MapControls; add them there rather than now.
+  const [sar] = useState(72);
+  const [showVessels] = useState(true);
+  const [hideSmallVessels] = useState(true);
+  const [showLandMasked] = useState(false);
 
   const vw = useViewportWidth();
   const clock = useClock();
@@ -71,6 +82,27 @@ export default function App() {
   const scene = scenes.data?.find((s) => s.id === sceneId) ?? null;
   const survey = roiObj?.mode === "survey";
   const modeColor = survey ? C.survey : C.accent;
+
+  const detections = useQuery({
+    queryKey: ["detections", scene?.id, showLandMasked],
+    queryFn: () => apiGet<Detection[]>(`/scenes/${scene!.id}/detections${showLandMasked ? "?include_land=true" : ""}`),
+    enabled: scene?.status === "processed",
+  });
+
+  const at = scene?.sensed_at ?? null;
+
+  // Once a scene is selected, the AIS layer narrows to vessels that pair with a
+  // visible detection, so every marker on screen has a counterpart.
+  const matchedMmsis =
+    roiObj?.mode === "fused" && scene?.status === "processed"
+      ? new Set(
+          (detections.data ?? [])
+            .map((d) => d.matched_mmsi ?? (d.match_state === "indeterminate" ? d.candidate_mmsi : null))
+            .filter((m): m is number => m !== null),
+        )
+      : null;
+
+  const selectedDet = selected?.kind === "det" ? (detections.data ?? []).find((d) => d.id === selected.id) ?? null : null;
 
   const selectRoi = (name: string) => {
     setRoi(name);
@@ -126,7 +158,40 @@ export default function App() {
           />
           <NextAcquisition roi={roi} roiLabel={roiObj?.label ?? ""} accent={modeColor} now={now} />
         </LeftRail>
-        <div style={{ flex: 1, minWidth: 0, position: "relative", background: C.map }} />
+        <div style={{ flex: 1, minWidth: 0, position: "relative", background: C.map }}>
+          <MapView roi={roiObj}>
+            <VesselLayer
+              key={roi}
+              roi={roi}
+              at={at}
+              hideSmallVessels={hideSmallVessels}
+              matchedMmsis={matchedMmsis}
+              show={showVessels}
+              selectedMmsi={selected?.kind === "ais" ? selected.id : null}
+              onSelect={(mmsi) => setSelected({ kind: "ais", id: mmsi })}
+            />
+            {scene && roiObj && (
+              <DetectionLayer
+                scene={scene}
+                mode={roiObj.mode}
+                detections={detections.data ?? []}
+                selectedId={selected?.kind === "det" ? selected.id : null}
+                onSelect={(id) => setSelected({ kind: "det", id })}
+                opacity={sar / 100}
+              />
+            )}
+            {selected && (() => {
+              const trackMmsi = selected.kind === "ais" ? selected.id : (selectedDet ? contactMmsi(selectedDet) : null);
+              if (trackMmsi === null) return null;
+              return (
+                <TrackLayer
+                  mmsi={trackMmsi}
+                  color={selected.kind === "ais" ? C.accent : stateColor(contactState(selectedDet!, roiObj!.mode))}
+                />
+              );
+            })()}
+          </MapView>
+        </div>
       </div>
 
       <HazardBar color={C.match} height={9}>
