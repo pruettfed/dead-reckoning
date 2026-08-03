@@ -5,7 +5,7 @@ import { apiGet } from "./api";
 import StatusBar from "./components/StatusBar";
 import TopBar from "./components/TopBar";
 import { HazardBar } from "./components/ui";
-import { C, MONO } from "./theme";
+import { C, MONO, hexA } from "./theme";
 import type { Health, Roi, Schedule, Scene } from "./types";
 
 export type Selection = { kind: "det" | "ais"; id: number } | null;
@@ -89,8 +89,8 @@ export default function App() {
       <HazardBar color={C.match} height={9}>
         <span
           style={{
-            background: "linear-gradient(90deg,rgba(10,11,12,0) 0%,rgba(10,11,12,.97) 22%,rgba(10,11,12,.97) 78%,rgba(10,11,12,0) 100%)",
-            color: "rgba(60,200,120,.9)",
+            background: `linear-gradient(90deg,${hexA(C.bg, 0)} 0%,${hexA(C.bg, 0.97)} 22%,${hexA(C.bg, 0.97)} 78%,${hexA(C.bg, 0)} 100%)`,
+            color: hexA(C.match, 0.9),
             fontFamily: MONO,
             fontSize: 7.5,
             letterSpacing: ".22em",

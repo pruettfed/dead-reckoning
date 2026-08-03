@@ -11,16 +11,16 @@ export default function SectionHeader({ title, subtitle, count, bleed = 12 }: Pr
             {title}
           </span>
           {subtitle && (
-            <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".03em", color: "#c9d5da", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".03em", color: C.textSubtle, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {subtitle}
             </span>
           )}
         </div>
         {count !== undefined && (
-          <span style={{ fontFamily: MONO, fontSize: 9.5, color: "#525e64", flex: "none" }}>{count}</span>
+          <span style={{ fontFamily: MONO, fontSize: 9.5, color: C.countDim, flex: "none" }}>{count}</span>
         )}
       </div>
-      <div style={{ height: 1, background: "rgba(255,255,255,.08)", margin: `0 -${bleed}px` }} />
+      <div style={{ height: 1, background: C.chromeLine, margin: `0 -${bleed}px` }} />
     </div>
   );
 }

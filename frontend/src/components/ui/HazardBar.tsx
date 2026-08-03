@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 
-import { hexA } from "../../theme";
+import { C, hexA } from "../../theme";
 
 type Props = { color: string; children?: ReactNode; height?: number };
 
@@ -15,7 +15,7 @@ export default function HazardBar({ color, children, height }: Props) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: `repeating-linear-gradient(45deg, ${hexA(color, 0.35)} 0 6px, rgba(10,11,12,.9) 6px 12px)`,
+        background: `repeating-linear-gradient(45deg, ${hexA(color, 0.35)} 0 6px, ${hexA(C.bg, 0.9)} 6px 12px)`,
       }}
     >
       {children}

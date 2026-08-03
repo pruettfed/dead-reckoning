@@ -4,6 +4,7 @@ export const C = {
   panelAlt: "#0b0d0f",
   chrome: "#101214",
   map: "#06080a",
+  brand: "#d8dee1",
 
   accent: "#3a8dff",
   amber: "#e8b400",
@@ -17,11 +18,15 @@ export const C = {
   text: "#dbe5e9",
   textMid: "#a9b7bd",
   textDim: "#8b979d",
+  textSubtle: "#c9d5da",
   faint: "#5a666c",
   label: "#4e5a60",
+  countDim: "#525e64",
 
   line: "rgba(255,255,255,.07)",
   lineStrong: "rgba(255,255,255,.12)",
+  chromeLine: "rgba(255,255,255,.08)",
+  hairline: "rgba(255,255,255,.05)",
   fill: "rgba(255,255,255,.025)",
   glass: "rgba(12,14,16,.74)",
 } as const;
