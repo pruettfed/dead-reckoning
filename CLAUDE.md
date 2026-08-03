@@ -11,7 +11,7 @@ Maritime OSINT platform: detect ships in Sentinel-1 SAR (radar) imagery, cross-r
 3. **Land mask** (`landmask.py`) — detections inside `land_polygons` flagged `on_land`, excluded from fusion and counts. Load with `scripts/load_land.py` (0 PU).
 4. **Fusion** (`fusion.py`) — AIS dead-reckoned to the acquisition instant (`sog`/`cog`), matched one-to-one against a physical uncertainty budget (`MATCH_RADIUS_M` + SAR azimuth displacement + fix-age drift), clipped to `sar_bbox` ∩ image-footprint. Three states: `matched` / `dark` / `indeterminate`. Every scene measures its own false-match rate on empty water and withholds dark calls above `MAX_CHANCE_MATCH_RATE`. Skipped entirely for `survey` ROIs (`is_dark` stays NULL).
 5. **Schedule** (`scheduler.py`) — a lifespan task sweeps all 12 ROIs every `SCHEDULER_INTERVAL_SECONDS` and analyzes each new usable pass once, under a `PU_MONTHLY_CEILING`. Nobody requests imagery; the admin POST survives as an ops escape hatch outside production only, alongside `scripts/analyze.py`.
-6. **Surface** (frontend) — react-leaflet; selecting a scene freezes the vessel layer at its time (scene = time control); the client is read-only and holds no key. The map draws both ROI boxes and drapes the stored SAR overview under the detections; the sidebar shows a next-pass countdown and the cross-region schedule.
+6. **Surface** (frontend) — react-leaflet; selecting a scene freezes the vessel layer at its time (scene = time control); the client is read-only and holds no key. The map draws both ROI boxes and drapes the stored SAR overview under the detections; the sidebar shows a next-pass countdown and the cross-region schedule. The UI is the Console v4 layout: three columns (region rail / map / contact rail), state-grouped contacts, and a per-contact dossier with fusion evidence and cross-scene sighting history.
 
 ## Status (2026-07-27) — automatic scheduling landed
 
@@ -19,7 +19,7 @@ Maritime OSINT platform: detect ships in Sentinel-1 SAR (radar) imagery, cross-r
 - **Pipeline is proven end-to-end.** The scheduler ran unattended on 2026-07-27 and analyzed 4 survey regions (`hormuz_strait`, `fujairah_anchorage` [dropped 2026-08-02], `kharg_island`, plus an interrupted `eopl_tompok_utara`/`kerch_strait`) for 274 PU total. CDSE creds and `models/sar_ship.pt` are present and working — the old "blocked on 3 user inputs" note was stale.
 - New table `pu_ledger`; `create_all` adds it to a live DB, so no volume wipe is needed for it. (The older `imaged_bbox`/`overview_png` columns on `sar_scenes` still require `docker compose down -v` on any database predating them — there is no Alembic.)
 - Next: re-probe all 12 `ais_bbox`es after the 2026-08-02 ROI resize (below).
-- Later (flag scope-creep if pulled forward): UI design pass, Railway/Vercel deploy (torch +~1.2 GB, needs image-sizing), README/demo polish. A 0-PU GRD/COG fetch backend is researched and deliberately deferred as a *fallback only* — see the deferred section in `.claude/plans/ok-i-want-to-generic-stallman.md`.
+- Later (flag scope-creep if pulled forward): Railway/Vercel deploy (torch +~1.2 GB, needs image-sizing), README/demo polish. A 0-PU GRD/COG fetch backend is researched and deliberately deferred as a *fallback only* — see the deferred section in `.claude/plans/ok-i-want-to-generic-stallman.md`.
 
 ## Stack
 

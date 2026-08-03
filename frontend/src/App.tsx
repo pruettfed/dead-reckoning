@@ -24,6 +24,7 @@ import Watchlist from "./components/Watchlist";
 import { contactMmsi, contactState } from "./contactState";
 import { formatAgo, useNow } from "./countdown";
 import { C, MONO, hexA, stateColor } from "./theme";
+import { buildTicker } from "./ticker";
 import { useWatchlist } from "./useWatchlist";
 import type { Detection, Health, Roi, Schedule, Scene, Vessel } from "./types";
 
@@ -293,13 +294,13 @@ export default function App() {
       <StatusBar
         roiLabel={roiObj?.label ?? "—"}
         stats={[
-          { k: "CONTACTS", v: scene ? String(scene.detection_count) : "—", color: C.text },
+          { k: "CONTACTS", v: scene ? String(scene.detection_count) : String(railVessels.length), color: C.text },
           { k: "MASKED", v: scene ? String(scene.land_count) : "—", color: C.textMid },
           { k: "FALSE MATCH", v: scene?.chance_match_rate != null ? `${(scene.chance_match_rate * 100).toFixed(1)}%` : "—", color: scene?.chance_match_rate != null ? C.unres : C.faint },
           { k: "RECALL", v: scene?.recall_large_total ? `${scene.recall_large_detected}/${scene.recall_large_total}` : "—", color: scene?.recall_large_total ? C.match : C.faint },
           { k: "PU", v: schedule.data ? `${Math.round(schedule.data.month_to_date_pu)} / ${Math.round(schedule.data.pu_monthly_ceiling)}` : "—", color: C.amber },
         ]}
-        ticker={[{ time: "--:--", text: "awaiting scene analysis", color: C.textMid }]}
+        ticker={buildTicker(scene, detections.data ?? [], roiObj?.label ?? "", roiObj?.mode ?? "fused")}
       />
     </div>
   );
