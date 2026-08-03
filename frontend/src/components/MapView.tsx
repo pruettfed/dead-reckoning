@@ -1,5 +1,5 @@
 import { ReactNode, useEffect } from "react";
-import { MapContainer, Polygon, Rectangle, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Polygon, Rectangle, TileLayer, useMap, ZoomControl } from "react-leaflet";
 import L from "leaflet";
 
 import { C } from "../theme";
@@ -69,6 +69,7 @@ export default function MapView({ roi, children }: { roi: Roi | null; children: 
         subdomains="abcd"
         maxZoom={19}
       />
+      <ZoomControl position="bottomright" />
       <Recenter bbox={roi?.ais_bbox ?? null} />
       {roi && (
         <>

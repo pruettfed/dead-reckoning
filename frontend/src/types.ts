@@ -23,6 +23,7 @@ export type Roi = {
   // Measured usable passes per 30 days — those whose footprint covers the
   // sar_bbox. Not the raw catalog pass count.
   passes_per_month: number;
+  blurb: string;
 };
 
 export type Vessel = {

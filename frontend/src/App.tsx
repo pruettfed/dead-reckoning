@@ -4,15 +4,19 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { apiGet } from "./api";
 import DetectionLayer from "./components/DetectionLayer";
 import LeftRail from "./components/LeftRail";
+import Legend from "./components/Legend";
+import MapControls from "./components/MapControls";
 import MapView from "./components/MapView";
 import NextAcquisition from "./components/NextAcquisition";
 import PassHistory from "./components/PassHistory";
 import RegionList from "./components/RegionList";
+import RoiBanner from "./components/RoiBanner";
 import StatusBar from "./components/StatusBar";
 import TopBar from "./components/TopBar";
 import TrackLayer from "./components/TrackLayer";
 import { HazardBar } from "./components/ui";
 import VesselLayer from "./components/VesselLayer";
+import ViewTag from "./components/ViewTag";
 import { contactMmsi, contactState } from "./contactState";
 import { useNow } from "./countdown";
 import { C, MONO, hexA, stateColor } from "./theme";
@@ -46,11 +50,11 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [passExpanded, setPassExpanded] = useState(false);
   const [selected, setSelected] = useState<Selection>(null);
-  // Setters unused until Task 8's MapControls; add them there rather than now.
-  const [sar] = useState(72);
-  const [showVessels] = useState(true);
-  const [hideSmallVessels] = useState(true);
-  const [showLandMasked] = useState(false);
+  const [sar, setSar] = useState(72);
+  const [showVessels, setShowVessels] = useState(true);
+  const [hideSmallVessels, setHideSmallVessels] = useState(true);
+  const [showLandMasked, setShowLandMasked] = useState(false);
+  const [storyOpen, setStoryOpen] = useState(false);
 
   const vw = useViewportWidth();
   const clock = useClock();
@@ -191,6 +195,30 @@ export default function App() {
               );
             })()}
           </MapView>
+
+          <div style={{ position: "absolute", left: 18, right: 18, top: 18, zIndex: 640, display: "flex", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 12, pointerEvents: "none" }}>
+            {roiObj && (
+              <RoiBanner roi={roiObj} accent={modeColor} storyOpen={storyOpen} onToggleStory={() => setStoryOpen(!storyOpen)} />
+            )}
+            <ViewTag scene={scene} accent={modeColor} onClear={() => { setSceneId(null); setSelected(null); }} />
+          </div>
+
+          <div style={{ position: "absolute", left: 18, right: 58, bottom: 18, zIndex: 600, display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 12, pointerEvents: "none" }}>
+            <MapControls
+              sar={sar}
+              onSar={setSar}
+              showVessels={showVessels}
+              onVessels={() => setShowVessels(!showVessels)}
+              hideSmall={hideSmallVessels}
+              onHideSmall={() => setHideSmallVessels(!hideSmallVessels)}
+              landCount={scene?.land_count ?? 0}
+              showLandMasked={showLandMasked}
+              onLandMasked={() => setShowLandMasked(!showLandMasked)}
+              accent={modeColor}
+              hasOverlay={!!scene?.has_overview}
+            />
+            <Legend survey={survey} showVessels={showVessels} showLandMasked={showLandMasked} />
+          </div>
         </div>
       </div>
 
