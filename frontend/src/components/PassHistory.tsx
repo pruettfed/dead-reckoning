@@ -66,7 +66,7 @@ export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, ex
       {scenes.length > VISIBLE && (
         <div
           onClick={onToggleExpand}
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 0", cursor: "pointer", background: "rgba(255,255,255,.025)", border: `1px solid ${C.line}` }}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 0", cursor: "pointer", background: C.fill, border: `1px solid ${C.line}` }}
         >
           <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".1em", lineHeight: 1, color: "#7f8b91" }}>
             {expanded ? "SHOW LESS" : `SHOW ALL ${scenes.length}`}

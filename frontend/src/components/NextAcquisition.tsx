@@ -20,7 +20,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
       <span style={{ fontFamily: MONO, fontSize: 8, letterSpacing: ".14em", color: C.label, whiteSpace: "nowrap" }}>{label}</span>
-      <span style={{ fontFamily: MONO, fontSize: 10.5, color: "#c9d5da", letterSpacing: ".02em", textAlign: "right" }}>{value}</span>
+      <span style={{ fontFamily: MONO, fontSize: 10.5, color: C.textSubtle, letterSpacing: ".02em", textAlign: "right" }}>{value}</span>
     </div>
   );
 }
@@ -52,7 +52,7 @@ export default function NextAcquisition({ roi, roiLabel, accent, now }: Props) {
               : "too few recent passes over this region to estimate the next one"}
           </div>
         </div>
-        <div style={{ height: 1, background: "rgba(255,255,255,.07)" }} />
+        <div style={{ height: 1, background: C.line }} />
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           <Row label="LATEST PASS" value={utcStamp(q.data?.latest_scene_sensed_at ?? null)} />
           <Row label="LAST ANALYZED" value={utcStamp(q.data?.last_processed_at ?? null)} />
