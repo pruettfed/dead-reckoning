@@ -4,6 +4,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { apiGet } from "./api";
 import ContactList from "./components/ContactList";
 import DetectionLayer from "./components/DetectionLayer";
+import Dossier from "./components/Dossier";
 import LeftRail from "./components/LeftRail";
 import Legend from "./components/Legend";
 import MapControls from "./components/MapControls";
@@ -61,8 +62,7 @@ export default function App() {
   const [storyOpen, setStoryOpen] = useState(false);
   const [liveVessels, setLiveVessels] = useState<Vessel[]>([]);
   const [vesselsAt, setVesselsAt] = useState<number | null>(null);
-  // Getter unused until Task 10 wires the Dossier's DETAIL/HISTORY toggle.
-  const [, setTab] = useState<"DETAIL" | "HISTORY">("DETAIL");
+  const [tab, setTab] = useState<"DETAIL" | "HISTORY">("DETAIL");
   const watchlist = useWatchlist();
 
   const vw = useViewportWidth();
@@ -138,6 +138,10 @@ export default function App() {
     fused: (rois.data ?? []).filter((r) => r.mode === "fused").length,
     survey: (rois.data ?? []).filter((r) => r.mode === "survey").length,
   };
+
+  const selectedVessel = selected?.kind === "ais" ? liveVessels.find((v) => v.mmsi === selected.id) ?? null : null;
+  const watchMmsi = selectedVessel ? selectedVessel.mmsi : selectedDet ? contactMmsi(selectedDet) : null;
+  const watchName = selectedVessel?.ship_name ?? selectedDet?.ship_name ?? null;
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: C.bg, color: C.textMid, fontFamily: "var(--dr-sans)", overflow: "hidden" }}>
@@ -234,6 +238,21 @@ export default function App() {
             />
             <Legend survey={survey} showVessels={showVessels} showLandMasked={showLandMasked} />
           </div>
+
+          <Dossier
+            detection={selectedDet}
+            vessel={selected?.kind === "ais" ? liveVessels.find((v) => v.mmsi === selected.id) ?? null : null}
+            mode={roiObj?.mode ?? "fused"}
+            scene={scene}
+            tab={tab}
+            onTab={setTab}
+            onClose={() => setSelected(null)}
+            onSelectSighting={(s) => { selectRoi(s.roi); setSceneId(s.scene_id); setSelected({ kind: "det", id: s.detection_id }); }}
+            watched={watchMmsi !== null && watchlist.has(watchMmsi)}
+            onToggleWatch={() => { if (watchMmsi !== null) watchlist.toggle({ mmsi: watchMmsi, name: watchName }); }}
+            top={narrow && drawerOpen ? 110 : 66}
+            side={narrow && drawerOpen ? "left" : "right"}
+          />
         </div>
 
         <RightRail
