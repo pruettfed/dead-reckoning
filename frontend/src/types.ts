@@ -20,6 +20,9 @@ export type Roi = {
   // "survey" regions have no AIS coverage: detections there are observed
   // vessels, never "dark".
   mode: "fused" | "survey";
+  // Measured usable passes per 30 days — those whose footprint covers the
+  // sar_bbox. Not the raw catalog pass count.
+  passes_per_month: number;
 };
 
 export type Vessel = {
@@ -157,4 +160,18 @@ export type Schedule = {
   most_recent: MostRecentAnalysis | null;
   month_to_date_pu: number;
   pu_monthly_ceiling: number;
+};
+
+export type Sighting = {
+  detection_id: number;
+  scene_id: string;
+  roi: string;
+  label: string;
+  sensed_at: string;
+  match_state: "matched" | "dark" | "indeterminate" | null;
+  is_dark: boolean | null;
+  confidence: number;
+  // True when this MMSI was the assigned match; false when it was only the
+  // nearest candidate for an indeterminate detection.
+  matched: boolean;
 };
