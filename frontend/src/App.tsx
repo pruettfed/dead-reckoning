@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 
 import { apiGet } from "./api";
+import LeftRail from "./components/LeftRail";
+import NextAcquisition from "./components/NextAcquisition";
+import PassHistory from "./components/PassHistory";
+import RegionList from "./components/RegionList";
 import StatusBar from "./components/StatusBar";
 import TopBar from "./components/TopBar";
 import { HazardBar } from "./components/ui";
+import { useNow } from "./countdown";
 import { C, MONO, hexA } from "./theme";
 import type { Health, Roi, Schedule, Scene } from "./types";
 
@@ -34,6 +39,7 @@ export default function App() {
   const [roi, setRoi] = useState("north_taiwan");
   const [sceneId, setSceneId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [passExpanded, setPassExpanded] = useState(false);
 
   const vw = useViewportWidth();
   const clock = useClock();
@@ -48,8 +54,23 @@ export default function App() {
     refetchInterval: (q) => (q.state.data?.some((s) => s.status === "processing") ? 5_000 : 30_000),
   });
 
+  const now = useNow();
+  const fusedRois = (rois.data ?? []).filter((r) => r.mode === "fused");
+  const countQueries = useQueries({
+    queries: fusedRois.map((r) => ({
+      queryKey: ["vessel-count", r.name],
+      queryFn: () => apiGet<{ count: number }>("/vessels/count", { roi: r.name }),
+      refetchInterval: 30_000,
+    })),
+  });
+  const counts = Object.fromEntries(
+    fusedRois.map((r, i) => [r.name, countQueries[i]?.data?.count]),
+  );
+
   const roiObj = rois.data?.find((r) => r.name === roi) ?? null;
   const scene = scenes.data?.find((s) => s.id === sceneId) ?? null;
+  const survey = roiObj?.mode === "survey";
+  const modeColor = survey ? C.survey : C.accent;
 
   const selectRoi = (name: string) => {
     setRoi(name);
@@ -63,7 +84,7 @@ export default function App() {
     if (first) selectRoi(first.name);
   };
 
-  const counts = {
+  const modeCounts = {
     fused: (rois.data ?? []).filter((r) => r.mode === "fused").length,
     survey: (rois.data ?? []).filter((r) => r.mode === "survey").length,
   };
@@ -73,7 +94,7 @@ export default function App() {
       <TopBar
         mode={mode}
         onMode={selectMode}
-        counts={counts}
+        counts={modeCounts}
         health={health.data}
         vesselsAgo={vw < 1360 ? null : "live"}
         drawerOpen={drawerOpen}
@@ -83,6 +104,28 @@ export default function App() {
       />
 
       <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
+        <LeftRail width={vw < 1180 ? 218 : 270}>
+          <RegionList
+            rois={rois.data ?? []}
+            mode={mode}
+            selected={roi}
+            onSelect={selectRoi}
+            schedule={schedule.data}
+            counts={counts}
+            now={now}
+          />
+          <PassHistory
+            roiLabel={roiObj?.label ?? ""}
+            scenes={scenes.data ?? []}
+            selectedId={sceneId}
+            onSelect={(id) => setSceneId(id === sceneId ? null : id)}
+            expanded={passExpanded}
+            onToggleExpand={() => setPassExpanded(!passExpanded)}
+            accent={modeColor}
+            survey={survey}
+          />
+          <NextAcquisition roi={roi} roiLabel={roiObj?.label ?? ""} accent={modeColor} now={now} />
+        </LeftRail>
         <div style={{ flex: 1, minWidth: 0, position: "relative", background: C.map }} />
       </div>
 
