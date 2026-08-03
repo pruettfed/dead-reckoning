@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 
 import { apiGet } from "./api";
+import ContactList from "./components/ContactList";
 import DetectionLayer from "./components/DetectionLayer";
 import LeftRail from "./components/LeftRail";
 import Legend from "./components/Legend";
@@ -10,6 +11,7 @@ import MapView from "./components/MapView";
 import NextAcquisition from "./components/NextAcquisition";
 import PassHistory from "./components/PassHistory";
 import RegionList from "./components/RegionList";
+import RightRail from "./components/RightRail";
 import RoiBanner from "./components/RoiBanner";
 import StatusBar from "./components/StatusBar";
 import TopBar from "./components/TopBar";
@@ -17,10 +19,12 @@ import TrackLayer from "./components/TrackLayer";
 import { HazardBar } from "./components/ui";
 import VesselLayer from "./components/VesselLayer";
 import ViewTag from "./components/ViewTag";
+import Watchlist from "./components/Watchlist";
 import { contactMmsi, contactState } from "./contactState";
-import { useNow } from "./countdown";
+import { formatAgo, useNow } from "./countdown";
 import { C, MONO, hexA, stateColor } from "./theme";
-import type { Detection, Health, Roi, Schedule, Scene } from "./types";
+import { useWatchlist } from "./useWatchlist";
+import type { Detection, Health, Roi, Schedule, Scene, Vessel } from "./types";
 
 export type Selection = { kind: "det" | "ais"; id: number } | null;
 
@@ -55,6 +59,11 @@ export default function App() {
   const [hideSmallVessels, setHideSmallVessels] = useState(true);
   const [showLandMasked, setShowLandMasked] = useState(false);
   const [storyOpen, setStoryOpen] = useState(false);
+  const [liveVessels, setLiveVessels] = useState<Vessel[]>([]);
+  const [vesselsAt, setVesselsAt] = useState<number | null>(null);
+  // Getter unused until Task 10 wires the Dossier's DETAIL/HISTORY toggle.
+  const [, setTab] = useState<"DETAIL" | "HISTORY">("DETAIL");
+  const watchlist = useWatchlist();
 
   const vw = useViewportWidth();
   const clock = useClock();
@@ -108,6 +117,11 @@ export default function App() {
 
   const selectedDet = selected?.kind === "det" ? (detections.data ?? []).find((d) => d.id === selected.id) ?? null : null;
 
+  // Mirrors VesselLayer's own filter so the rail lists the same vessels shown on the map.
+  const railVessels = liveVessels.filter((v) =>
+    matchedMmsis ? matchedMmsis.has(v.mmsi) : !hideSmallVessels || (v.ship_type !== null && v.ship_type >= 60 && v.ship_type <= 89),
+  );
+
   const selectRoi = (name: string) => {
     setRoi(name);
     setSceneId(null);
@@ -132,7 +146,7 @@ export default function App() {
         onMode={selectMode}
         counts={modeCounts}
         health={health.data}
-        vesselsAgo={vw < 1360 ? null : "live"}
+        vesselsAgo={vw < 1360 || vesselsAt === null ? null : formatAgo(new Date(vesselsAt).toISOString(), now)}
         drawerOpen={drawerOpen}
         onDrawer={() => setDrawerOpen(!drawerOpen)}
         narrow={narrow}
@@ -173,6 +187,7 @@ export default function App() {
               show={showVessels}
               selectedMmsi={selected?.kind === "ais" ? selected.id : null}
               onSelect={(mmsi) => setSelected({ kind: "ais", id: mmsi })}
+              onData={(v) => { setLiveVessels(v); setVesselsAt(Date.now()); }}
             />
             {scene && roiObj && (
               <DetectionLayer
@@ -220,6 +235,24 @@ export default function App() {
             <Legend survey={survey} showVessels={showVessels} showLandMasked={showLandMasked} />
           </div>
         </div>
+
+        <RightRail
+          width={narrow ? 264 : vw < 1180 ? 224 : 276}
+          narrow={narrow}
+          open={!narrow || drawerOpen}
+          title={scene ? (survey ? "SURVEY CONTACTS" : "SCENE CONTACTS") : "LIVE AIS TRACKS"}
+          count={String(scene ? (detections.data ?? []).length : railVessels.length)}
+          footer={<Watchlist entries={watchlist.entries} />}
+        >
+          <ContactList
+            mode={roiObj?.mode ?? "fused"}
+            detections={detections.data ?? []}
+            vessels={railVessels}
+            sceneSelected={!!scene}
+            selected={selected}
+            onSelect={(s) => { setSelected(s); setTab("DETAIL"); if (narrow) setDrawerOpen(false); }}
+          />
+        </RightRail>
       </div>
 
       <HazardBar color={C.match} height={9}>
