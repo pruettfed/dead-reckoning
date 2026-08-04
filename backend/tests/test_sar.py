@@ -21,6 +21,7 @@ from app.sar import (
     SarChip,
     SarScene,
     _retry_delay_seconds,
+    _split_value_mask,
     build_process_request,
     chip_overview_png,
     estimate_pu,
@@ -164,6 +165,27 @@ class TestBuildProcessRequest:
             make_scene(), TEST_BBOX, 100, 100, evalscript="//custom"
         )
         assert body["evalscript"] == "//custom"
+
+
+class TestSplitValueMask:
+    def test_two_band_array_splits_value_and_mask(self):
+        value = np.full((4, 4), 200, dtype=np.uint8)
+        mask = np.zeros((4, 4), dtype=np.uint8)
+        mask[:2, :] = 255
+        arr = np.stack([value, mask], axis=-1)
+        got_value, got_mask = _split_value_mask(arr)
+        assert np.array_equal(got_value, value)
+        assert np.array_equal(got_mask, mask)
+
+    def test_single_band_array_has_no_mask(self):
+        arr = np.full((4, 4), 200, dtype=np.uint8)
+        value, mask = _split_value_mask(arr)
+        assert np.array_equal(value, arr)
+        assert mask is None
+
+    def test_evalscript_emits_dataMask_as_second_band(self):
+        assert "bands: 2" in EVALSCRIPT
+        assert "sample.dataMask" in EVALSCRIPT
 
 
 class TestRetryDelaySeconds:

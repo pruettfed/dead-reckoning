@@ -56,6 +56,10 @@ class NoEligibleScene(Exception):
     """No recent scene falls inside the AIS buffer's correlation window."""
 
 
+class SarCoverageTooLow(Exception):
+    """Fetched chip's real dataMask coverage falls short of MIN_FOOTPRINT_COVERAGE."""
+
+
 def eligible_scenes(
     scenes: list[SarScene], min_ais_time: datetime | None, window_hours: float
 ) -> list[SarScene]:
@@ -372,6 +376,17 @@ async def _run_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
                 {"id": scene.id, "imaged_bbox": list(chip.bbox), "overview_png": overview},
             )
             await session.commit()
+        # Ground-truth recheck of footprint_coverage's prediction, now that the
+        # pixels are actually in hand — stored above either way, so a rejected
+        # scene is still visible for debugging even though it's marked failed.
+        if chip.mask is not None:
+            real_coverage = float(chip.mask.mean()) / 255.0
+            if real_coverage < MIN_FOOTPRINT_COVERAGE:
+                raise SarCoverageTooLow(
+                    f"fetched chip is only {real_coverage:.0%} real data, need "
+                    f"{MIN_FOOTPRINT_COVERAGE:.0%} — the catalog footprint that passed "
+                    "the pre-fetch check overstated this pass's real coverage"
+                )
         detections = await asyncio.to_thread(run_detection, chip, detector)
         async with SessionLocal() as session:
             await insert_detections(session, scene.id, detections)

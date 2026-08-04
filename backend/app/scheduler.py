@@ -57,17 +57,23 @@ def decide(
     """Whether to analyze the ROI's newest usable pass.
 
     `status` is the scene's row state (None when the catalog offers a pass we
-    have never seen). `has_pu_spend` says whether a pixel fetch was already
-    attempted for it.
+    have never seen — including a scene that *was* seen, but whose row was
+    deleted, e.g. by `scripts/dev_reset.py`). `has_pu_spend` says whether a
+    pixel fetch was already attempted for it, checked against `pu_ledger`
+    directly rather than the row, since the row is exactly what a reset
+    erases; the ledger is deliberately never touched by a scene reset.
     """
     if status == "processed":
         return Decision(False, "already analyzed")
     if status == "processing":
         return Decision(False, "analysis already running")
-    if status == "failed" and has_pu_spend:
-        # It already cost PU once. Retrying on every sweep would spend the
-        # month's budget on a scene that may never succeed; recovering it is a
-        # deliberate ops action through the admin endpoint.
+    if has_pu_spend:
+        # It already cost PU once, whether the row still says so (`failed`) or
+        # was deleted entirely (`None` — a dev reset does exactly this, and
+        # otherwise looks identical to a genuinely new pass). Retrying on
+        # every sweep would spend the month's budget on a scene that may
+        # never succeed; recovering it is a deliberate ops action through the
+        # admin endpoint.
         return Decision(False, "previous attempt already spent PU")
     if month_to_date_pu + pu_cost > ceiling:
         return Decision(

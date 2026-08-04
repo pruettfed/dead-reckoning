@@ -29,6 +29,14 @@ class TestDecide:
     def test_new_scene_is_analyzed(self):
         assert decision(None).analyze
 
+    def test_deleted_scene_that_already_spent_pu_is_not_retried(self):
+        # A scene row that's gone (e.g. scripts/dev_reset.py) looks exactly
+        # like a genuinely new pass — `status` alone can't tell them apart.
+        # `pu_ledger` can: a reset erases the row but never the ledger, so a
+        # scene reset after its pixels were already paid for must not
+        # re-spend PU just because the row is missing.
+        assert not decision(None, spent=True).analyze
+
     def test_processed_scene_is_skipped(self):
         # Re-analysing a stored scene is 0 PU but also 0 value.
         assert not decision("processed").analyze

@@ -58,19 +58,26 @@ DB_MAX = 0.0
 # None = off (production default); the bench sweeps candidates through this same seam.
 SPECKLE_FILTER: dict | None = None
 
+# Band 2 is dataMask verbatim (0/255), not folded into band 1 — a real 0 dB
+# floor pixel and a nodata pixel both render as black in band 1, and the two
+# must stay distinguishable. `fetch_scene_pixels` uses band 2 to measure how
+# much of the fetched chip is *actually* imaged, since the catalog footprint
+# used for the pre-fetch coverage guard can overstate it (see
+# pipeline.SarCoverageTooLow).
 EVALSCRIPT = string.Template(
     """//VERSION=3
 function setup() {
   return {
     input: [{ bands: ["VV", "dataMask"] }],
-    output: { bands: 1, sampleType: "UINT8" },
+    output: { bands: 2, sampleType: "UINT8" },
   };
 }
 function evaluatePixel(sample) {
-  if (sample.dataMask === 0) return [0];
+  var mask = sample.dataMask * 255;
+  if (sample.dataMask === 0) return [0, mask];
   var db = 10 * Math.log10(Math.max(sample.VV, 1e-10));
   var scaled = (db - $db_min) / ($db_max - $db_min);
-  return [255 * Math.max(0, Math.min(1, scaled))];
+  return [255 * Math.max(0, Math.min(1, scaled)), mask];
 }
 """
 ).substitute(db_min=DB_MIN, db_max=DB_MAX)
@@ -112,12 +119,18 @@ class FetchGrid:
 
 @dataclass(frozen=True)
 class SarChip:
-    """Stitched single-band uint8 image of an ROI; row 0 is the north edge."""
+    """Stitched single-band uint8 image of an ROI; row 0 is the north edge.
+
+    `mask` is the stitched dataMask band (0/255 per pixel), when the response
+    carried one — i.e. fetched with the production `EVALSCRIPT`. None for
+    evalscripts that only ever emit one band (calibration/bench tooling).
+    """
 
     pixels: np.ndarray
     bbox: tuple[float, float, float, float]
     width: int
     height: int
+    mask: np.ndarray | None = None
 
 
 OVERVIEW_MAX_PX = 2048
@@ -397,6 +410,18 @@ async def _get_token(client: httpx.AsyncClient) -> str:
     return _token_cache["token"]
 
 
+def _split_value_mask(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
+    """A decoded tile array → (value band, mask band or None).
+
+    A 2-band evalscript output (VV/dataMask) decodes as a grayscale+alpha PNG,
+    i.e. an (H, W, 2) array; a single-band evalscript (calibration/bench
+    tooling) decodes as plain (H, W) with no mask to report.
+    """
+    if arr.ndim == 3:
+        return arr[..., 0], arr[..., -1]
+    return arr, None
+
+
 async def fetch_scene_pixels(
     scene: SarScene,
     bbox: tuple[float, float, float, float],
@@ -416,6 +441,8 @@ async def fetch_scene_pixels(
         scene.name, grid.width, grid.height, len(grid.tiles), estimate_pu(grid),
     )
     chip = np.zeros((grid.height, grid.width), dtype=np.uint8)
+    mask_chip = np.zeros((grid.height, grid.width), dtype=np.uint8)
+    saw_mask_band = False
     semaphore = asyncio.Semaphore(4)
 
     owns_client = client is None
@@ -425,6 +452,7 @@ async def fetch_scene_pixels(
         headers = {"Authorization": f"Bearer {token}"}
 
         async def fetch_tile(tile: FetchTile) -> None:
+            nonlocal saw_mask_band
             body = build_process_request(
                 scene, tile.bbox, tile.width, tile.height,
                 evalscript=evalscript, speckle_filter=speckle_filter,
@@ -441,11 +469,20 @@ async def fetch_scene_pixels(
                     )
                     await asyncio.sleep(delay)
                 resp.raise_for_status()
-            image = Image.open(io.BytesIO(resp.content)).convert("L")
-            chip[tile.y_off:tile.y_off + tile.height, tile.x_off:tile.x_off + tile.width] = np.asarray(image)
+            arr = np.asarray(Image.open(io.BytesIO(resp.content)))
+            value, mask = _split_value_mask(arr)
+            y0, y1 = tile.y_off, tile.y_off + tile.height
+            x0, x1 = tile.x_off, tile.x_off + tile.width
+            chip[y0:y1, x0:x1] = value
+            if mask is not None:
+                saw_mask_band = True
+                mask_chip[y0:y1, x0:x1] = mask
 
         await asyncio.gather(*(fetch_tile(tile) for tile in grid.tiles))
-        return SarChip(pixels=chip, bbox=bbox, width=grid.width, height=grid.height)
+        return SarChip(
+            pixels=chip, bbox=bbox, width=grid.width, height=grid.height,
+            mask=mask_chip if saw_mask_band else None,
+        )
     finally:
         if owns_client:
             await client.aclose()

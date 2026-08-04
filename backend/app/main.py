@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from email.utils import format_datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Response
@@ -460,24 +461,38 @@ async def scene_detections(
 async def scene_overview(
     scene_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
+    if_modified_since: Annotated[str | None, Header()] = None,
 ) -> Response:
     row = (
         await session.execute(
-            text("SELECT overview_png FROM sar_scenes WHERE id = :id"), {"id": scene_id}
+            text("SELECT overview_png, processed_at FROM sar_scenes WHERE id = :id"),
+            {"id": scene_id},
         )
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail=f"unknown scene {scene_id!r}")
-    if row[0] is None:
+    overview_png, processed_at = row
+    if overview_png is None:
         raise HTTPException(
             status_code=404, detail=f"no imagery stored for scene {scene_id!r}"
         )
-    # A scene's imagery never changes once analyzed.
-    return Response(
-        content=row[0],
-        media_type="image/png",
-        headers={"Cache-Control": "public, max-age=86400, immutable"},
-    )
+    # Not `immutable`: a scene_id's imagery is *usually* fixed once analyzed,
+    # but scripts/dev_reset.py deletes and re-fetches the same scene_id by
+    # design (see CLAUDE.md), so this URL can legitimately serve different
+    # bytes later. `Last-Modified` (from `processed_at`, which changes exactly
+    # when the image does) lets a long cache stay both cheap and correct: a
+    # cache hit costs nothing for `max-age`, and revalidation past that costs
+    # one timestamp comparison (a 304, no image bytes) rather than silently
+    # serving stale content for the rest of the day.
+    # processed_at is NULL for a scene still `processing`, or one that failed
+    # after its overview was stored (kept for debugging, see SarCoverageTooLow)
+    # — fall back to "now" so those rows just never validate as cached rather
+    # than crashing format_datetime on None.
+    last_modified = format_datetime(processed_at or datetime.now(timezone.utc), usegmt=True)
+    headers = {"Cache-Control": "public, max-age=86400", "Last-Modified": last_modified}
+    if if_modified_since == last_modified:
+        return Response(status_code=304, headers=headers)
+    return Response(content=overview_png, media_type="image/png", headers=headers)
 
 
 @app.get("/api/analysis/next-pass", summary="Latest and expected Sentinel-1 pass times for an ROI (free)")
