@@ -63,8 +63,11 @@ export default function DetectionLayer({ scene, mode, detections, selectedId, on
   return (
     <>
       {scene.has_overview && scene.imaged_bbox && (
+        // In the tile pane it sits above the basemap but below every vector
+        // layer, so AIS tracks and markers stay legible over the imagery.
         <ImageOverlay
           key={scene.id}
+          pane="tilePane"
           url={`/api/scenes/${scene.id}/overview.png`}
           bounds={overlayBounds(scene.imaged_bbox)}
           opacity={opacity}

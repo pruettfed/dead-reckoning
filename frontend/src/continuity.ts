@@ -1,6 +1,9 @@
 export const CONTINUITY_BINS = 30;
-// AIS_RETENTION_DAYS defaults to 2, so 48 h is the whole queryable history.
-export const CONTINUITY_WINDOW_MS = 48 * 3600_000;
+// Most vessels clear an ROI in a few hours, so a 48 h strip was mostly empty
+// bins for time spent elsewhere. Six hours (12 min per bin) is the scale a
+// transit actually happens on.
+export const CONTINUITY_WINDOW_H = 6;
+export const CONTINUITY_WINDOW_MS = CONTINUITY_WINDOW_H * 3600_000;
 
 export type Continuity = { bins: boolean[]; gapMs: number };
 

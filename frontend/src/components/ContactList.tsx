@@ -45,6 +45,11 @@ export default function ContactList({ mode, detections, vessels, sceneSelected, 
   if (!sceneSelected) {
     return (
       <>
+        {vessels.length === 0 && (
+          <div style={{ fontFamily: MONO, fontSize: 9.5, lineHeight: 1.6, color: C.faint }}>
+            {mode === "survey" ? "no AIS reference here — select a pass to list observed contacts" : "no live AIS tracks in view"}
+          </div>
+        )}
         {vessels.map((v) => (
           <Card
             key={v.mmsi}
@@ -81,7 +86,8 @@ export default function ContactList({ mode, detections, vessels, sceneSelected, 
         const color = stateColor(g.state);
         return (
           <div key={g.state} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <HazardBar color={color}>
+            {/* Bleeds through the rail's 12px padding to the panel edges. */}
+            <HazardBar color={color} style={{ margin: "0 -12px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", background: `linear-gradient(90deg,${hexA(C.panel, 0)} 0%,${hexA(C.panel, 0.97)} 22%,${hexA(C.panel, 0.97)} 78%,${hexA(C.panel, 0)} 100%)`, padding: "1.5px 20px" }}>
                 <div style={{ width: 8, height: 6, flex: "none", background: color }} />
                 <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".15em", color }}>{STATE_LABEL[g.state]}</span>

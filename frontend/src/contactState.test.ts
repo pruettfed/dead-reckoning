@@ -8,7 +8,7 @@ function det(over: Partial<Detection> = {}): Detection {
     id: 42, lat: 25.1, lon: 121.8, confidence: 0.9, confidence_bucket: "high",
     match_state: "matched", is_dark: false, on_land: false, matched_mmsi: 416001,
     match_distance_m: 120, match_time_delta_s: -90, candidate_mmsi: null,
-    dark_margin_m: null, ship_name: "X", ship_type: 70, callsign: null,
+    dark_margin_m: null, ship_name: "X", candidate_name: null, ship_type: 70, callsign: null,
     flag_iso2: "TW", flag_country: "Taiwan", ...over,
   };
 }

@@ -19,6 +19,7 @@ export default function DossierDetail({ detection, vessel, mode, scene, color }:
   let name = "";
   let sub = "";
   let type = "";
+  let candidate = false;
 
   if (vessel) {
     name = vessel.ship_name ?? `MMSI ${vessel.mmsi}`;
@@ -34,7 +35,10 @@ export default function DossierDetail({ detection, vessel, mode, scene, color }:
     );
   } else if (detection) {
     const state = contactState(detection, mode);
-    name = detection.ship_name ?? (state === "dark" ? "Unidentified hull" : "Unclassified contact");
+    // An unresolved contact's candidate is a lead, not an identity — italicised
+    // below so it never reads as a confirmed name.
+    candidate = state === "indeterminate" && detection.candidate_name !== null;
+    name = detection.ship_name ?? (candidate ? detection.candidate_name! : state === "dark" ? "Unidentified hull" : "Unclassified contact");
     type = shipTypeLabel(detection.ship_type) ?? "Unknown type";
     sub =
       state === "matched"
@@ -65,7 +69,6 @@ export default function DossierDetail({ detection, vessel, mode, scene, color }:
     } else if (state === "indeterminate") {
       fields.push(
         { label: "CANDIDATE", value: detection.candidate_mmsi != null ? String(detection.candidate_mmsi) : "—" },
-        { label: "FLAG", value: flag(detection.flag_iso2, detection.flag_country) },
         { label: "Δ DEAD-RECKON", value: detection.match_distance_m != null ? `${detection.match_distance_m.toFixed(0)} m` : "—" },
         { label: "MARGIN", value: detection.dark_margin_m != null ? `${detection.dark_margin_m.toFixed(0)} m` : "—" },
       );
@@ -79,7 +82,10 @@ export default function DossierDetail({ detection, vessel, mode, scene, color }:
 
   return (
     <div>
-      <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: ".04em", color: C.textHi }}>{name}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: ".04em", color: C.textHi, fontStyle: candidate ? "italic" : "normal" }}>
+        {name}
+        {candidate && <span style={{ fontFamily: MONO, fontSize: 8.5, fontStyle: "normal", letterSpacing: ".14em", color: C.label, marginLeft: 7 }}>CANDIDATE</span>}
+      </div>
       <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: ".03em", color, marginTop: 4 }}>{type}</div>
       <div style={{ fontFamily: MONO, fontSize: 9.5, color: "#5f6c72", letterSpacing: ".05em", marginTop: 4, lineHeight: 1.5 }}>{sub}</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px 10px", marginTop: 14 }}>
