@@ -66,6 +66,11 @@ DELETE_PU_MONTH = text(
 DELETE_PU_ALL = text(
     "DELETE FROM pu_ledger WHERE (CAST(:roi AS text) IS NULL OR roi = CAST(:roi AS text))"
 )
+# Targets exactly one scene, unlike the two above — the precise action needed
+# to let scheduler.decide retry a scene that already cost PU (it checks
+# has_pu_spend regardless of whether the sar_scenes row exists) without
+# touching any other scene's protection against a duplicate spend.
+DELETE_PU_SCENE = text("DELETE FROM pu_ledger WHERE scene_id = :scene_id")
 
 PU_BY_ROI = text(
     """
@@ -177,16 +182,32 @@ async def reset_pu(
     session: AsyncSession,
     *,
     roi: str | None = None,
+    scene_id: str | None = None,
     scope: Literal["month", "all"] = "month",
 ) -> dict:
-    """Delete PU ledger rows. Does not commit; the caller decides."""
+    """Delete PU ledger rows. Does not commit; the caller decides.
+
+    `scene_id` is exclusive with `roi`/`scope` (ignored if given) — see
+    `DELETE_PU_SCENE`.
+    """
+    if scene_id is not None:
+        if roi is not None:
+            raise ValueError("pass either scene_id or roi, not both")
+        deleted = (await session.execute(DELETE_PU_SCENE, {"scene_id": scene_id})).rowcount
+        return {
+            "entries_deleted": deleted, "scope": "scene", "roi": None,
+            "scene_id": scene_id, "note": PU_RESET_NOTE,
+        }
     if scope not in ("month", "all"):
         raise ValueError("scope must be 'month' or 'all'")
     if roi is not None:
         get_roi(roi)
     statement = DELETE_PU_MONTH if scope == "month" else DELETE_PU_ALL
     deleted = (await session.execute(statement, {"roi": roi})).rowcount
-    return {"entries_deleted": deleted, "scope": scope, "roi": roi, "note": PU_RESET_NOTE}
+    return {
+        "entries_deleted": deleted, "scope": scope, "roi": roi,
+        "scene_id": None, "note": PU_RESET_NOTE,
+    }
 
 
 # --------------------------------------------------------------------------

@@ -71,11 +71,14 @@ async def _run_pu(args: argparse.Namespace) -> int:
             _print_pu_status(await pu_status(session, settings=settings))
             return 0
 
-        target = f"scope={args.scope}" + (f" roi={args.roi}" if args.roi else "")
+        target = (
+            f"scene_id={args.scene_id}" if args.scene_id
+            else f"scope={args.scope}" + (f" roi={args.roi}" if args.roi else "")
+        )
         if not _confirm(f"Delete PU ledger entries ({target})?", args.yes):
             print("aborted")
             return 1
-        result = await reset_pu(session, roi=args.roi, scope=args.scope)
+        result = await reset_pu(session, roi=args.roi, scene_id=args.scene_id, scope=args.scope)
         if args.dry_run:
             await session.rollback()
             print(f"dry run — would delete {result['entries_deleted']} entries, rolled back")
@@ -146,7 +149,14 @@ async def main() -> int:
     pu = subparsers.add_parser("pu", help="view or clear the PU ledger")
     pu.add_argument("--show", action="store_true", help="print the budget and exit")
     pu.add_argument("--scope", choices=("month", "all"), default="month")
-    pu.add_argument("--roi", help="only this ROI")
+    pu_target = pu.add_mutually_exclusive_group()
+    pu_target.add_argument("--roi", help="only this ROI")
+    pu_target.add_argument(
+        "--scene-id",
+        help="only this scene's entries (ignores --scope); the precise reset that "
+        "lets scheduler.decide retry a scene that already cost PU, without wiping "
+        "the rest of its ROI's ledger",
+    )
     pu.set_defaults(func=_run_pu)
 
     scenes = subparsers.add_parser("scenes", help="delete SAR scenes and their detections")
