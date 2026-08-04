@@ -6,27 +6,30 @@ detection points already in `sar_detections` and re-flags them. Re-running
 persisted), but re-running the *mask* is free and can be repeated as often as
 you like while tuning the buffer.
 
-Source data — OSM land polygons, any **WGS84 / EPSG:4326** shapefile from:
-
-    https://osmdata.openstreetmap.de/data/land-polygons.html
-
-Both the "complete" and "split" WGS84 builds work; the Mercator (3857) ones do
-not — the loader assumes lon/lat degrees and will find no overlap. "complete" is
-what this was tested against. "split" pre-chops the continents into ~1° tiles,
-so it avoids the 183 MB Eurasia polygon and loads faster, but the difference is
-about a minute either way and not worth re-downloading for.
-
-GSHHG full-resolution shorelines work too and are ~7x smaller, but are coarser
-in exactly the places that matter here — harbour walls, breakwaters, the rocky
-inlets around Musandam. OSM is worth the download.
+Source data — OSM land polygons, WGS84 / EPSG:4326, from
+https://osmdata.openstreetmap.de/data/land-polygons.html . `--download` fetches
+the "split" build automatically (continents pre-chopped to ~1° tiles, avoiding
+the 183 MB Eurasia polygon that the "complete" build streams as one shape;
+~900 MB, ~1 min on a fast link). Pass a local .shp instead if you already have
+one — GSHHG shorelines work too but are coarser in exactly the places that
+matter here (harbour walls, breakwaters, the rocky inlets around Musandam).
 
 Only geometry overlapping some ROI's sar_bbox is inserted, clipped to it, so
-the table lands at a few MB regardless of the source size and the deployed
-image carries no shapefile.
+`land_polygons` lands at a few MB regardless of source size. Every load also
+exports that clipped result to a small GeoJSON file (`--export`, default
+`backend/land/land_polygons.geojson`) meant to be committed: `landmask.
+load_bundled_polygons` loads it back in automatically on boot when
+`land_polygons` is empty, so a fresh deploy has coastline data with no
+manual step and no 900 MB download in the deploy path. The buffer
+(`LAND_MASK_BUFFER_M`, from `.env` by default) is not baked into that file —
+it only affects the runtime mark step below, so retuning it never requires
+re-exporting.
 
     cd backend
-    DATABASE_URL=postgresql+asyncpg://dvd:dvd@localhost:5432/dvd \\
-        .venv/bin/python scripts/load_land.py ~/Downloads/land-polygons-complete-4326/land_polygons.shp
+    .venv/bin/python scripts/load_land.py --download
+
+    # or against a shapefile you already have
+    .venv/bin/python scripts/load_land.py ~/Downloads/land-polygons-complete-4326/land_polygons.shp
 
     # retune the buffer against what is already loaded — no shapefile needed
     ... .venv/bin/python scripts/load_land.py --buffer-m 100
@@ -42,8 +45,11 @@ import argparse
 import asyncio
 import json
 import sys
+import tempfile
+import zipfile
 from pathlib import Path
 
+import httpx
 from sqlalchemy import text
 
 # `app` lives one level up from scripts/. Added here so the script runs from any
@@ -55,6 +61,19 @@ from app.config import get_settings  # noqa: E402
 from app.database import SessionLocal, engine  # noqa: E402
 from app.landmask import apply_schema, mark_land_detections  # noqa: E402
 from app.rois import ROIS, Bbox  # noqa: E402
+
+# "split" build: same coverage as "complete", chopped to ~1° tiles so no single
+# shape is the 183 MB Eurasia polygon.
+DOWNLOAD_URL = "https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip"
+
+# Must match `landmask.BUNDLED_GEOJSON_PATH`. Committed to the repo so a fresh
+# deploy boots with coastline data already loaded, instead of needing this
+# script run by hand against production. Lives under `app/` (not a sibling
+# `land/`) because the Dockerfile only `COPY app ./app` into the image — a
+# path outside `app/` would never reach a built container at all.
+DEFAULT_EXPORT_PATH = (
+    Path(__file__).resolve().parent.parent / "app" / "land" / "land_polygons.geojson"
+)
 
 # Inserted one statement at a time, not batched. The size distribution is
 # violently skewed: of the ~370 polygons that survive the ROI filter, the median
@@ -79,6 +98,51 @@ INSERT_CLIPPED = text(
     WHERE NOT ST_IsEmpty(clipped) AND ST_Dimension(clipped) = 2
     """
 )
+
+
+def download_shapefile(dest_dir: Path) -> Path:
+    """Fetch and unzip the OSM WGS84 land polygons build into `dest_dir`.
+
+    No persistent cache — a fresh download is a ~1 min tax for a script that
+    is run rarely (once for a new deploy target, occasionally to refresh
+    coastline data), and skipping cache invalidation logic outweighs that.
+    """
+    zip_path = dest_dir / "land-polygons-split-4326.zip"
+    print(f"downloading {DOWNLOAD_URL} …", flush=True)
+    with httpx.stream(
+        "GET", DOWNLOAD_URL, follow_redirects=True,
+        timeout=httpx.Timeout(30.0, read=None),
+    ) as resp:
+        resp.raise_for_status()
+        with open(zip_path, "wb") as f:
+            for chunk in resp.iter_bytes(chunk_size=1 << 20):
+                f.write(chunk)
+    print(f"unzipping {zip_path.stat().st_size / 1e6:.0f} MB …", flush=True)
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(dest_dir)
+    shapefiles = list(dest_dir.rglob("*.shp"))
+    if not shapefiles:
+        sys.exit("downloaded archive contained no .shp file")
+    return shapefiles[0]
+
+
+EXPORT_QUERY = text("SELECT ST_AsGeoJSON(geom::geometry) FROM land_polygons ORDER BY id")
+
+
+async def export_geojson(path: Path) -> int:
+    """Dump the clipped `land_polygons` rows to a GeoJSON FeatureCollection.
+
+    Meant to be committed — `landmask.load_bundled_polygons` reads this file
+    back in on boot when the table is empty, which is how a deploy gets
+    coastline data without running this script (or its 900 MB download)
+    against production.
+    """
+    async with SessionLocal() as session:
+        rows = (await session.execute(EXPORT_QUERY)).scalars().all()
+    features = [{"type": "Feature", "properties": {}, "geometry": json.loads(g)} for g in rows]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+    return len(features)
 
 
 def bboxes_overlap(a: Bbox, b: Bbox) -> bool:
@@ -163,7 +227,20 @@ async def main() -> None:
         "shapefile",
         type=Path,
         nargs="?",
-        help="land_polygons.shp (EPSG:4326). Omit to re-mask against already-loaded geometry.",
+        help="local land_polygons.shp (EPSG:4326). Omit (with --download, or alone) "
+             "to re-mask against already-loaded geometry.",
+    )
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="fetch the OSM land polygons shapefile automatically instead of a local path",
+    )
+    parser.add_argument(
+        "--export",
+        type=Path,
+        default=DEFAULT_EXPORT_PATH,
+        help=f"where to write the clipped GeoJSON for committing (default {DEFAULT_EXPORT_PATH}); "
+             "only written when polygons are (re)loaded, i.e. a shapefile is given or --download is used",
     )
     parser.add_argument(
         "--buffer-m",
@@ -178,15 +255,25 @@ async def main() -> None:
         help="report what this buffer would mask, then roll back",
     )
     args = parser.parse_args()
+    if args.shapefile and args.download:
+        sys.exit("pass either a shapefile path or --download, not both")
 
     bboxes = [roi.sar_bbox for roi in ROIS.values()]
 
     async with engine.begin() as conn:
         await apply_schema(conn)
 
-    if args.shapefile:
-        count = await load(args.shapefile, bboxes)
-        print(f"\nland_polygons: {count:,} rows clipped to {len(bboxes)} ROI boxes")
+    with tempfile.TemporaryDirectory() as tmp:
+        if args.download:
+            args.shapefile = download_shapefile(Path(tmp))
+        if args.shapefile:
+            count = await load(args.shapefile, bboxes)
+            print(f"\nland_polygons: {count:,} rows clipped to {len(bboxes)} ROI boxes")
+            exported = await export_geojson(args.export)
+            print(
+                f"exported {exported:,} rows to {args.export} — commit this file so a "
+                "fresh deploy boots with coastline data already loaded"
+            )
 
     # Re-mask every detection already stored — this is the "rerun on existing
     # analyses" path, and it pulls no new imagery.

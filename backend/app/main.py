@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models  # noqa: F401  (registers models on Base.metadata)
 from app import devtools, fusion, landmask, pipeline, scheduler, sources
 from app.config import Settings, get_settings
-from app.database import Base, engine, get_session
+from app.database import Base, SessionLocal, engine, get_session
 from app.detect import DetectorUnavailable, load_detector
 from app.flags import flag_for_mmsi
 from app.ingest import run_ingest, run_retention
@@ -27,6 +27,7 @@ logging.basicConfig(
     level=getattr(logging, settings.log_level, logging.INFO),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+logger = logging.getLogger(__name__)
 
 
 REAP_INTERRUPTED = text(
@@ -41,9 +42,17 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await conn.run_sync(Base.metadata.create_all)
         await landmask.apply_schema(conn)
         await fusion.apply_schema(conn)
+        loaded = await landmask.load_bundled_polygons(conn)
         # In-flight analyses live only in `pipeline._in_flight`, so any restart
         # orphans their rows. Nothing is retrying them; say so.
         await conn.execute(REAP_INTERRUPTED)
+    if loaded:
+        # First boot with coastline data: re-mask any detections analyzed
+        # before it existed, same as scripts/load_land.py does after a load.
+        async with SessionLocal() as session:
+            masked = await landmask.mark_land_detections(session, settings.land_mask_buffer_m)
+            await session.commit()
+        logger.info("loaded %d bundled land polygons, masked %d existing detection(s)", loaded, masked)
     sources.mark_disconnected(pipeline.SOURCE)  # list the SAR source in /api/health from boot
     stop = asyncio.Event()
     tasks = [

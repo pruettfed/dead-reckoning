@@ -24,8 +24,19 @@ reports what each value would mask.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# Written by `scripts/load_land.py --download` (or a local shapefile) and
+# meant to be committed — lets a fresh deploy have coastline data with no
+# manual step and no 900 MB OSM download in the deploy path. Lives under
+# `app/` (not a sibling `land/` or anything named `data/`) because the
+# Dockerfile only `COPY app ./app` into the image, and `data/` is
+# git/dockerignored wholesale for imagery.
+BUNDLED_GEOJSON_PATH = Path(__file__).resolve().parent / "land" / "land_polygons.geojson"
 
 # `create_all` adds the missing `land_polygons` table on its own, but it will
 # never add a column to a table that already exists — and there is no Alembic
@@ -63,6 +74,30 @@ async def apply_schema(conn) -> None:
 async def land_loaded(session: AsyncSession) -> bool:
     """Whether any coastline geometry has been loaded (scripts/load_land.py)."""
     return bool((await session.execute(LAND_POLYGON_COUNT)).scalar())
+
+
+INSERT_BUNDLED = text(
+    "INSERT INTO land_polygons (geom) "
+    "VALUES (ST_SetSRID(ST_GeomFromGeoJSON(:geojson), 4326)::geography)"
+)
+
+
+async def load_bundled_polygons(conn) -> int:
+    """Load the committed coastline export if `land_polygons` is empty. Runs on every
+    boot (see main.lifespan), same pattern as `apply_schema` — a no-op once loaded.
+
+    A no-op (not an error) when the file is missing too — an environment that
+    never ran `scripts/load_land.py --download` just boots with no coastline
+    data, exactly as before this existed.
+    """
+    if not BUNDLED_GEOJSON_PATH.exists():
+        return 0
+    if (await conn.execute(LAND_POLYGON_COUNT)).scalar():
+        return 0
+    features = json.loads(BUNDLED_GEOJSON_PATH.read_text())["features"]
+    for feature in features:
+        await conn.execute(INSERT_BUNDLED, {"geojson": json.dumps(feature["geometry"])})
+    return len(features)
 
 
 async def mark_land_detections(
