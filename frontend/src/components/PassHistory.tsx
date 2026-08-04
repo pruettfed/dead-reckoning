@@ -1,3 +1,4 @@
+import { utcStamp } from "../countdown";
 import { C, MONO, hexA } from "../theme";
 import { Card, SectionHeader, Tag } from "./ui";
 import type { Scene } from "../types";
@@ -15,11 +16,16 @@ type Props = {
 
 const VISIBLE = 5;
 
-function utc(iso: string): string {
-  const d = new Date(iso);
-  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getUTCDate())} ${months[d.getUTCMonth()]} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}Z`;
+// Pipeline errors are raw exception strings; this reduces the common ones to a
+// line that fits under the timestamp.
+function failReason(error: string | null): string {
+  const e = (error ?? "").toLowerCase();
+  if (e.includes("real data") || e.includes("coverage")) return "swath missed the box";
+  if (e.includes("credential") || e.includes("401") || e.includes("403")) return "imagery access rejected";
+  if (e.includes("timeout") || e.includes("timed out")) return "imagery fetch timed out";
+  if (e.includes("model checkpoint") || e.includes("dependencies")) return "detector unavailable";
+  if (e.includes("ais")) return "no AIS reference in window";
+  return error ? error.split("\n")[0].slice(0, 42) : "analysis error";
 }
 
 export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, expanded, onToggleExpand, accent, survey }: Props) {
@@ -33,8 +39,9 @@ export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, ex
       )}
       {shown.map((s, i) => {
         const failed = s.status === "failed";
-        const flag = failed ? "failed" : i === 0 ? "LATEST" : survey ? "survey" : s.dark_count ? `${s.dark_count} dark` : "clear";
-        const flagColor = failed ? C.dark : i === 0 ? C.amber : !survey && s.dark_count ? C.dark : null;
+        const processing = s.status === "processing";
+        const flag = failed ? "failed" : processing ? "processing" : i === 0 ? "LATEST" : survey ? "survey" : s.dark_count ? `${s.dark_count} dark` : "clear";
+        const flagColor = failed ? C.dark : processing ? C.amber : i === 0 ? C.amber : !survey && s.dark_count ? C.dark : null;
         return (
           <Card
             key={s.id}
@@ -44,15 +51,18 @@ export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, ex
             style={{ padding: "9px 12px", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}
           >
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: MONO, fontSize: 11, color: s.id === selectedId ? C.textHi : C.textMid, letterSpacing: ".03em" }}>
-                {utc(s.sensed_at)}
+              <div style={{ fontFamily: MONO, fontSize: 11, color: s.id === selectedId ? C.textHi : C.textMid, letterSpacing: ".03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {utcStamp(s.sensed_at)}
               </div>
-              <div style={{ fontFamily: MONO, fontSize: 8.5, color: C.label, letterSpacing: ".08em", marginTop: 2 }}>
-                {s.platform} / IW / VV
+              <div style={{ fontFamily: MONO, fontSize: 8.5, color: failed ? hexA(C.dark, 0.8) : C.label, letterSpacing: ".08em", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {failed
+                  ? failReason(s.error)
+                  : processing
+                    ? `${s.platform} / IW / VV`
+                    : `${s.platform} / IW / VV · ${s.detection_count} contacts`}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "none" }}>
-              <span style={{ fontFamily: MONO, fontSize: 10, color: C.textDim }}>{s.detection_count} contacts</span>
               <Tag
                 color={flagColor ? C.bg : "#68757b"}
                 background={flagColor ? hexA(flagColor, 0.85) : "rgba(255,255,255,.06)"}

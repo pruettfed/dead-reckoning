@@ -22,7 +22,7 @@ import VesselLayer from "./components/VesselLayer";
 import ViewTag from "./components/ViewTag";
 import Watchlist from "./components/Watchlist";
 import { contactMmsi, contactState } from "./contactState";
-import { formatAgo, useNow } from "./countdown";
+import { formatAgo, useNow, utcStamp } from "./countdown";
 import { C, MONO, hexA, stateColor } from "./theme";
 import { buildTicker } from "./ticker";
 import { useWatchlist } from "./useWatchlist";
@@ -41,9 +41,9 @@ function useViewportWidth(): number {
 }
 
 function useClock(): string {
-  const [clock, setClock] = useState(() => new Date().toISOString().slice(11, 19) + "Z");
+  const [clock, setClock] = useState(() => utcStamp(Date.now(), true));
   useEffect(() => {
-    const id = setInterval(() => setClock(new Date().toISOString().slice(11, 19) + "Z"), 1000);
+    const id = setInterval(() => setClock(utcStamp(Date.now(), true)), 1000);
     return () => clearInterval(id);
   }, []);
   return clock;
@@ -69,6 +69,7 @@ export default function App() {
   const vw = useViewportWidth();
   const clock = useClock();
   const narrow = vw < 980;
+  const compact = vw < 1180;
 
   const rois = useQuery({ queryKey: ["rois"], queryFn: () => apiGet<Roi[]>("/rois") });
   const health = useQuery({ queryKey: ["health"], queryFn: () => apiGet<Health>("/health"), refetchInterval: 30_000 });
@@ -118,10 +119,13 @@ export default function App() {
 
   const selectedDet = selected?.kind === "det" ? (detections.data ?? []).find((d) => d.id === selected.id) ?? null : null;
 
-  // Mirrors VesselLayer's own filter so the rail lists the same vessels shown on the map.
-  const railVessels = liveVessels.filter((v) =>
-    matchedMmsis ? matchedMmsis.has(v.mmsi) : !hideSmallVessels || (v.ship_type !== null && v.ship_type >= 60 && v.ship_type <= 89),
-  );
+  // Mirrors VesselLayer's own filter so the rail lists the same vessels shown on
+  // the map — including the survey case, where AIS is never shown at all.
+  const railVessels = survey
+    ? []
+    : liveVessels.filter((v) =>
+        matchedMmsis ? matchedMmsis.has(v.mmsi) : !hideSmallVessels || (v.ship_type !== null && v.ship_type >= 60 && v.ship_type <= 89),
+      );
 
   const selectRoi = (name: string) => {
     setRoi(name);
@@ -140,6 +144,8 @@ export default function App() {
     survey: (rois.data ?? []).filter((r) => r.mode === "survey").length,
   };
 
+  const highConf = (detections.data ?? []).filter((d) => d.confidence_bucket === "high").length;
+
   const selectedVessel = selected?.kind === "ais" ? liveVessels.find((v) => v.mmsi === selected.id) ?? null : null;
   const watchMmsi = selectedVessel ? selectedVessel.mmsi : selectedDet ? contactMmsi(selectedDet) : null;
   const watchName = selectedVessel?.ship_name ?? selectedDet?.ship_name ?? null;
@@ -156,6 +162,9 @@ export default function App() {
         onDrawer={() => setDrawerOpen(!drawerOpen)}
         narrow={narrow}
         clock={clock}
+        sceneAt={scene?.sensed_at ?? null}
+        accent={modeColor}
+        now={now}
       />
 
       <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
@@ -189,7 +198,7 @@ export default function App() {
               at={at}
               hideSmallVessels={hideSmallVessels}
               matchedMmsis={matchedMmsis}
-              show={showVessels}
+              show={showVessels && !survey}
               selectedMmsi={selected?.kind === "ais" ? selected.id : null}
               onSelect={(mmsi) => setSelected({ kind: "ais", id: mmsi })}
               onData={(v) => { setLiveVessels(v); setVesselsAt(Date.now()); }}
@@ -236,8 +245,10 @@ export default function App() {
               onLandMasked={() => setShowLandMasked(!showLandMasked)}
               accent={modeColor}
               hasOverlay={!!scene?.has_overview}
+              survey={survey}
+              compact={compact}
             />
-            <Legend survey={survey} showVessels={showVessels} showLandMasked={showLandMasked} />
+            <Legend survey={survey} showVessels={showVessels && !survey} showLandMasked={showLandMasked} compact={compact} />
           </div>
 
           <Dossier
@@ -260,7 +271,7 @@ export default function App() {
           width={narrow ? 264 : vw < 1180 ? 224 : 276}
           narrow={narrow}
           open={!narrow || drawerOpen}
-          title={scene ? (survey ? "SURVEY CONTACTS" : "SCENE CONTACTS") : "LIVE AIS TRACKS"}
+          title={survey ? "SURVEY CONTACTS" : scene ? "SCENE CONTACTS" : "LIVE AIS TRACKS"}
           count={String(scene ? (detections.data ?? []).length : railVessels.length)}
           footer={<Watchlist entries={watchlist.entries} />}
         >
@@ -296,11 +307,19 @@ export default function App() {
         stats={[
           { k: "CONTACTS", v: scene ? String(scene.detection_count) : String(railVessels.length), color: C.text },
           { k: "MASKED", v: scene ? String(scene.land_count) : "—", color: C.textMid },
-          { k: "FALSE MATCH", v: scene?.chance_match_rate != null ? `${(scene.chance_match_rate * 100).toFixed(1)}%` : "—", color: scene?.chance_match_rate != null ? C.unres : C.faint },
-          { k: "RECALL", v: scene?.recall_large_total ? `${scene.recall_large_detected}/${scene.recall_large_total}` : "—", color: scene?.recall_large_total ? C.match : C.faint },
-          { k: "PU", v: schedule.data ? `${Math.round(schedule.data.month_to_date_pu)} / ${Math.round(schedule.data.pu_monthly_ceiling)}` : "—", color: C.amber },
+          // Survey regions are never fused, so the fusion quality stats would
+          // read "—" forever; confidence and revisit rate are what they have.
+          ...(survey
+            ? [
+                { k: "HIGH CONF", v: scene ? `${highConf}/${(detections.data ?? []).length}` : "—", color: scene ? C.survey : C.faint },
+                { k: "REVISIT", v: roiObj ? `${roiObj.passes_per_month}/mo` : "—", color: C.textMid },
+              ]
+            : [
+                { k: "FALSE MATCH", v: scene?.chance_match_rate != null ? `${(scene.chance_match_rate * 100).toFixed(1)}%` : "—", color: scene?.chance_match_rate != null ? C.unres : C.faint },
+                { k: "RECALL", v: scene?.recall_large_total ? `${scene.recall_large_detected}/${scene.recall_large_total}` : "—", color: scene?.recall_large_total ? C.match : C.faint },
+              ]),
         ]}
-        ticker={buildTicker(scene, detections.data ?? [], roiObj?.label ?? "", roiObj?.mode ?? "fused")}
+        ticker={buildTicker(schedule.data)}
       />
     </div>
   );

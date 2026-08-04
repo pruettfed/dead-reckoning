@@ -105,6 +105,9 @@ export type Detection = {
   // Metres outside the nearest vessel's uncertainty envelope; negative = inside.
   dark_margin_m: number | null;
   ship_name: string | null;
+  // Name behind `candidate_mmsi` — a lead on an unresolved contact, not an
+  // identification.
+  candidate_name: string | null;
   ship_type: number | null;
   callsign: string | null;
   // Flag of the matched vessel; null for dark, indeterminate and survey

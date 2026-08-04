@@ -29,6 +29,9 @@ export default function Dossier(p: Props) {
   const color = stateColor(state);
   const id = vessel ? String(vessel.mmsi) : contactId(detection!, mode);
   const mmsi = vessel ? vessel.mmsi : contactMmsi(detection!);
+  // Nothing in a survey region carries an MMSI, so there is no history to trace.
+  const history = mode !== "survey";
+  const view = history ? tab : "DETAIL";
 
   return (
     <div
@@ -55,16 +58,18 @@ export default function Dossier(p: Props) {
         </div>
       </div>
 
-      <div style={{ display: "flex", flex: "none", gap: 7, padding: "9px 12px", borderBottom: "1px solid rgba(255,255,255,.09)" }}>
-        <Tabs
-          items={[{ key: "DETAIL", label: "DETAIL" }, { key: "HISTORY", label: "HISTORY" }]}
-          value={tab}
-          onChange={(k) => onTab(k as "DETAIL" | "HISTORY")}
-          accent={color}
-        />
-      </div>
+      {history && (
+        <div style={{ display: "flex", flex: "none", gap: 7, padding: "9px 12px", borderBottom: "1px solid rgba(255,255,255,.09)" }}>
+          <Tabs
+            items={[{ key: "DETAIL", label: "DETAIL" }, { key: "HISTORY", label: "HISTORY" }]}
+            value={tab}
+            onChange={(k) => onTab(k as "DETAIL" | "HISTORY")}
+            accent={color}
+          />
+        </div>
+      )}
 
-      {detection && scene && tab === "DETAIL" && (
+      {detection && scene && view === "DETAIL" && (
         <SarChip
           scene={scene}
           lat={detection.lat}
@@ -75,7 +80,7 @@ export default function Dossier(p: Props) {
       )}
 
       <div style={{ padding: "13px 14px 14px", overflowY: "auto", minHeight: 0 }}>
-        {tab === "DETAIL" ? (
+        {view === "DETAIL" ? (
           <DossierDetail detection={detection} vessel={vessel} mode={mode} scene={scene} color={color} />
         ) : (
           <DossierHistory mmsi={mmsi} onSelectSighting={p.onSelectSighting} />

@@ -1,26 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiGet } from "../api";
-import { CONTINUITY_BINS, continuity, formatGap } from "../continuity";
+import { CONTINUITY_BINS, CONTINUITY_WINDOW_H, CONTINUITY_WINDOW_MS, continuity, formatGap } from "../continuity";
+import { utcStamp } from "../countdown";
 import { C, MONO, hexA, stateColor } from "../theme";
 import { Tag } from "./ui";
 import type { Sighting, TrackPoint } from "../types";
 
-const GAP_THRESHOLD_MS = 2 * (48 * 3600_000) / CONTINUITY_BINS;
-
-function utc(iso: string): string {
-  const d = new Date(iso);
-  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getUTCDate())} ${months[d.getUTCMonth()]} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}Z`;
-}
+const GAP_THRESHOLD_MS = 2 * CONTINUITY_WINDOW_MS / CONTINUITY_BINS;
 
 type Props = { mmsi: number | null; onSelectSighting: (s: Sighting) => void };
 
 export default function DossierHistory({ mmsi, onSelectSighting }: Props) {
   const track = useQuery({
-    queryKey: ["track", mmsi, 48],
-    queryFn: () => apiGet<TrackPoint[]>(`/vessels/${mmsi}/track`, { hours: "48" }),
+    queryKey: ["track", mmsi, CONTINUITY_WINDOW_H],
+    queryFn: () => apiGet<TrackPoint[]>(`/vessels/${mmsi}/track`, { hours: String(CONTINUITY_WINDOW_H) }),
     enabled: mmsi !== null,
   });
 
@@ -44,14 +38,14 @@ export default function DossierHistory({ mmsi, onSelectSighting }: Props) {
   return (
     <div>
       <div style={{ padding: "10px 12px", background: "rgba(255,255,255,.035)", border: `1px solid ${C.chromeLine}` }}>
-        <div style={{ fontFamily: MONO, fontSize: 8, letterSpacing: ".14em", color: C.label }}>AIS CONTINUITY / 48H</div>
+        <div style={{ fontFamily: MONO, fontSize: 8, letterSpacing: ".14em", color: C.label }}>AIS CONTINUITY / {CONTINUITY_WINDOW_H}H</div>
         <div style={{ display: "flex", gap: 1.5, height: 14, marginTop: 7 }}>
           {bins.map((on, i) => (
             <div key={i} style={{ flex: 1, background: on ? "rgba(150,175,190,.5)" : hexA(C.dark, 0.32) }} />
           ))}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", fontFamily: MONO, fontSize: 8, color: C.label, marginTop: 5 }}>
-          <span>-48H</span>
+          <span>-{CONTINUITY_WINDOW_H}H</span>
           <span style={{ color: gapped ? C.dark : C.label }}>{gapped ? `GAP ${formatGap(gapMs)}` : "CONTINUOUS"}</span>
           <span>NOW</span>
         </div>
@@ -79,7 +73,7 @@ export default function DossierHistory({ mmsi, onSelectSighting }: Props) {
               style={{ padding: "8px 11px", background: C.fill, border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, cursor: "pointer" }}
             >
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontFamily: MONO, fontSize: 10.5, color: C.textSubtle }}>{utc(s.sensed_at)}</div>
+                <div style={{ fontFamily: MONO, fontSize: 10.5, color: C.textSubtle }}>{utcStamp(s.sensed_at)}</div>
                 <div style={{ fontFamily: MONO, fontSize: 8.5, color: C.label, letterSpacing: ".06em", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {s.label}
                 </div>
