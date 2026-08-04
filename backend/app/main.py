@@ -415,9 +415,13 @@ DETECTIONS_QUERY = text(
            d.confidence, d.confidence_bucket, d.is_dark, d.match_state, d.on_land,
            d.matched_mmsi, d.match_distance_m, d.match_time_delta_s, d.dark_margin_m,
            d.candidate_mmsi,
-           m.ship_name, m.ship_type, m.callsign
+           m.ship_name, m.ship_type, m.callsign,
+           -- Named separately from ship_name: an indeterminate detection is not
+           -- identified, so the candidate's name is a lead, never an identity.
+           c.ship_name AS candidate_name
     FROM sar_detections d
     LEFT JOIN ship_metadata m ON m.mmsi = d.matched_mmsi
+    LEFT JOIN ship_metadata c ON c.mmsi = d.candidate_mmsi
     WHERE d.scene_id = :scene_id
       AND (:include_land OR NOT d.on_land)
     ORDER BY d.confidence DESC

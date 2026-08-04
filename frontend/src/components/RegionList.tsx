@@ -33,7 +33,7 @@ export default function RegionList({ rois, mode, selected, onSelect, schedule, c
         const on = r.name === selected;
         const analyzing = row?.state === "analyzing";
         const due = row?.next_expected_at && new Date(row.next_expected_at).getTime() > now;
-        const stat = analyzing ? "analyzing" : due ? formatCountdown(row!.next_expected_at!, now) : "due";
+        const stat = analyzing ? "Analyzing" : due ? formatCountdown(row!.next_expected_at!, now) : "Due";
         return (
           <Card key={r.name} accent={accent} selected={on} onClick={() => onSelect(r.name)}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>

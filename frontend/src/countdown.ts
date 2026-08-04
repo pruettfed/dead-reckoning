@@ -25,6 +25,16 @@ export function formatAgo(pastIso: string, nowMs: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+/** `04 AUG 14:22Z`, optionally with seconds. */
+export function utcStamp(at: string | number, withSeconds = false): string {
+  const d = new Date(at);
+  const p = (n: number) => String(n).padStart(2, "0");
+  const secs = withSeconds ? `:${p(d.getUTCSeconds())}` : "";
+  return `${p(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}${secs}Z`;
+}
+
 // Clock, re-rendering on an interval.
 export function useNow(intervalMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());

@@ -1,3 +1,4 @@
+import { formatAgo, utcStamp } from "../countdown";
 import { C, MONO, hexA } from "../theme";
 import { Tabs } from "./ui";
 import type { Health } from "../types";
@@ -12,6 +13,9 @@ type Props = {
   onDrawer: () => void;
   narrow: boolean;
   clock: string;
+  sceneAt: string | null;
+  accent: string;
+  now: number;
 };
 
 function Pill({ label, value, ok }: { label: string; value?: string; ok: boolean }) {
@@ -24,10 +28,11 @@ function Pill({ label, value, ok }: { label: string; value?: string; ok: boolean
   );
 }
 
-export default function TopBar({ mode, onMode, counts, health, vesselsAgo, drawerOpen, onDrawer, narrow, clock }: Props) {
+export default function TopBar({ mode, onMode, counts, health, vesselsAgo, drawerOpen, onDrawer, narrow, clock, sceneAt, accent, now }: Props) {
   const sources = health?.sources ?? {};
   const aisOk = Object.entries(sources).some(([n, s]) => n.includes("ais") && s.state === "connected");
   const sarOk = health !== undefined && !Object.entries(sources).some(([n, s]) => n.includes("sar") && s.state === "error");
+  const ago = sceneAt ? formatAgo(sceneAt, now) : "";
 
   return (
     <div style={{ height: 40, flex: "none", display: "flex", alignItems: "stretch", background: C.chrome, borderBottom: `1px solid ${C.chromeLine}` }}>
@@ -83,8 +88,16 @@ export default function TopBar({ mode, onMode, counts, health, vesselsAgo, drawe
         {vesselsAgo && <Pill label="AIS Live" value={vesselsAgo} ok={aisOk} />}
       </div>
 
+      {sceneAt && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px", borderLeft: `1px solid ${C.line}`, background: hexA(accent, 0.08) }}>
+          <span style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: ".14em", color: C.label, whiteSpace: "nowrap" }}>SCENE</span>
+          <span style={{ fontFamily: MONO, fontSize: 11, color: accent, letterSpacing: ".04em", whiteSpace: "nowrap" }}>{utcStamp(sceneAt)}</span>
+          <span style={{ fontFamily: MONO, fontSize: 9.5, color: C.faint, whiteSpace: "nowrap" }}>{ago === "just now" ? "now" : `−${ago.replace(" ago", "")}`}</span>
+        </div>
+      )}
+
       <div style={{ display: "flex", alignItems: "center", padding: "0 16px", borderLeft: `1px solid ${C.line}` }}>
-        <span style={{ fontFamily: MONO, fontSize: 12.5, color: C.textHi, letterSpacing: ".04em" }}>{clock}</span>
+        <span style={{ fontFamily: MONO, fontSize: 12.5, color: C.textHi, letterSpacing: ".04em", whiteSpace: "nowrap" }}>{clock}</span>
       </div>
     </div>
   );
