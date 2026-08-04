@@ -45,6 +45,10 @@ SOURCE = "sar_sentinel1"
 SEARCH_WINDOW_DAYS = 7
 # A pass must image at least this much of the sar_bbox to be worth fetching.
 MIN_FOOTPRINT_COVERAGE = 0.85
+# How long a pass sits in CDSE's catalog before its pixels are reliably ready
+# from the Process API — the catalog can list a product before it's fully
+# processed.
+MIN_SCENE_AGE = timedelta(hours=3)
 NEXT_PASS_LOOKBACK_DAYS = 14
 NEXT_PASS_CACHE_SECONDS = 600
 
@@ -120,10 +124,13 @@ async def footprint_coverage(
 
 
 def estimate_next_pass(sensed_times: list[datetime], now: datetime) -> datetime | None:
-    """Median interval between recent passes, rolled forward past `now`.
+    """Median interval between recent passes, rolled forward past `now`, plus
+    MIN_SCENE_AGE.
 
     Deduplicates timestamps first — the catalog lists multiple products
-    (e.g. standard + COG) for one acquisition.
+    (e.g. standard + COG) for one acquisition. The MIN_SCENE_AGE offset keeps
+    this an estimate of when analysis will actually start rather than when the
+    satellite flies over.
     """
     times = sorted(set(sensed_times))
     if len(times) < 3:
@@ -136,7 +143,7 @@ def estimate_next_pass(sensed_times: list[datetime], now: datetime) -> datetime 
     expected = times[-1]
     while expected <= now:
         expected += timedelta(seconds=interval)
-    return expected
+    return expected + MIN_SCENE_AGE
 
 
 def imaged_footprint_wkts(
@@ -238,8 +245,13 @@ async def find_target_scene(
 
         # Newest pass that actually images the box. Catalog "intersects" is not
         # enough: a pass clipping one corner costs full PU and returns black.
-        scene, best = None, 0.0
+        scene, best, too_fresh = None, 0.0, 0
         for candidate in candidates:
+            if now - candidate.sensed_at < MIN_SCENE_AGE:
+                # Catalog listing isn't pixel availability — see MIN_SCENE_AGE.
+                # Older candidates below are unaffected and still considered.
+                too_fresh += 1
+                continue
             covered = await footprint_coverage(session, scenes, candidate, roi.sar_bbox)
             best = max(best, covered)
             if covered >= MIN_FOOTPRINT_COVERAGE:
@@ -250,10 +262,14 @@ async def find_target_scene(
                 )
                 break
         if scene is None:
-            raise NoEligibleScene(
+            reason = (
                 f"no recent pass covers enough of {roi.name!r}'s sar_bbox "
-                f"(best {best * 100:.0f}%, need {MIN_FOOTPRINT_COVERAGE * 100:.0f}%) — "
-                "the swath only clips it; wait for a better pass or re-probe the box "
+                f"(best {best * 100:.0f}%, need {MIN_FOOTPRINT_COVERAGE * 100:.0f}%)"
+            )
+            if too_fresh:
+                reason += f"; {too_fresh} newer pass(es) skipped as under {MIN_SCENE_AGE} old"
+            raise NoEligibleScene(
+                reason + " — wait for a better pass or re-probe the box "
                 "with scripts/probe_regions.py"
             )
         status = (

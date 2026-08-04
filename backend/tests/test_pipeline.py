@@ -4,6 +4,7 @@ footprint normalization. Orchestration (fetch/detect/fuse) is exercised live."""
 from datetime import datetime, timedelta, timezone
 
 from app.pipeline import (
+    MIN_SCENE_AGE,
     _footprint_wkts_in_window,
     eligible_scenes,
     estimate_next_pass,
@@ -88,12 +89,12 @@ class TestEstimateNextPass:
     def test_projects_median_interval_past_now(self):
         last = NOW - timedelta(days=2, hours=12)
         times = [last - timedelta(days=6), last - timedelta(days=3), last]
-        assert estimate_next_pass(times, NOW) == last + timedelta(days=3)
+        assert estimate_next_pass(times, NOW) == last + timedelta(days=3) + MIN_SCENE_AGE
 
     def test_rolls_forward_when_passes_missed(self):
         last = NOW - timedelta(days=7)
         times = [last - timedelta(days=6), last - timedelta(days=3), last]
-        assert estimate_next_pass(times, NOW) == last + timedelta(days=9)
+        assert estimate_next_pass(times, NOW) == last + timedelta(days=9) + MIN_SCENE_AGE
 
     def test_result_is_strictly_in_future(self):
         times = [NOW - timedelta(days=3), NOW - timedelta(days=2), NOW - timedelta(days=1)]
@@ -108,11 +109,21 @@ class TestEstimateNextPass:
         last = NOW - timedelta(days=1)
         passes = [last - timedelta(days=6), last - timedelta(days=3), last]
         times = [t for t in passes for _ in range(2)]
-        assert estimate_next_pass(times, NOW) == last + timedelta(days=3)
+        assert estimate_next_pass(times, NOW) == last + timedelta(days=3) + MIN_SCENE_AGE
 
     def test_unsorted_input_matches_sorted(self):
         times = [NOW - timedelta(days=1), NOW - timedelta(days=3), NOW - timedelta(days=2)]
         assert estimate_next_pass(times, NOW) == estimate_next_pass(sorted(times), NOW)
+
+    def test_estimate_includes_min_scene_age_offset(self):
+        # The satellite pass itself lands earlier — find_target_scene won't
+        # fetch it until it clears MIN_SCENE_AGE, so the estimate shown to
+        # users must reflect that or it reads "overdue" for hours for no
+        # visible reason.
+        last = NOW - timedelta(days=2, hours=12)
+        times = [last - timedelta(days=6), last - timedelta(days=3), last]
+        raw_pass_time = last + timedelta(days=3)
+        assert estimate_next_pass(times, NOW) == raw_pass_time + MIN_SCENE_AGE
 
 
 class TestImagedFootprintWkts:
