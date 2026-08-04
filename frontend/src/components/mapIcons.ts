@@ -43,13 +43,18 @@ export function detectionIcon(opts: {
   });
 }
 
-export function vesselIcon(cog: number, selected: boolean): L.DivIcon {
+export function vesselIcon(cog: number | null, selected: boolean): L.DivIcon {
   const c = selected ? "#ffffff" : C.accent;
-  const wedge = `<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:9px;height:12px;background:${c};opacity:.95;clip-path:polygon(50% 0%,100% 78%,50% 100%,0% 78%)"></div>`;
+  // No COG reported: a rotated wedge would fabricate a heading, so render an undirected dot.
+  const glyph =
+    cog === null
+      ? `<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:9px;height:9px;border-radius:50%;background:${c};opacity:.95"></div>`
+      : `<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:9px;height:12px;background:${c};opacity:.95;clip-path:polygon(50% 0%,100% 78%,50% 100%,0% 78%)"></div>`;
+  const rotation = cog === null ? "" : `transform:rotate(${cog}deg)`;
   return L.divIcon({
     className: "",
     iconSize: [26, 26],
     iconAnchor: [13, 13],
-    html: `<div style="width:26px;height:26px;position:relative">${selected ? cornerBracketsHtml(c, false) : ""}<div style="position:absolute;inset:0;transform:rotate(${cog}deg)">${wedge}</div></div>`,
+    html: `<div style="width:26px;height:26px;position:relative">${selected ? cornerBracketsHtml(c, false) : ""}<div style="position:absolute;inset:0;${rotation}">${glyph}</div></div>`,
   });
 }

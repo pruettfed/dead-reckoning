@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ImageOverlay, Marker, Polygon } from "react-leaflet";
 
 import { contactId, contactState } from "../contactState";
@@ -28,6 +29,36 @@ function overlayBounds(b: Bbox): [[number, number], [number, number]] {
   return [[b[1], b[0]], [b[3], b[2]]];
 }
 
+function DetectionMarker({
+  d,
+  mode,
+  color,
+  selected,
+  ring,
+  onSelect,
+}: {
+  d: Detection;
+  mode: Roi["mode"];
+  color: string;
+  selected: boolean;
+  ring: boolean;
+  onSelect: (id: number) => void;
+}) {
+  const label = `${d.ship_name ?? contactId(d, mode)} / ${(d.confidence * 100).toFixed(0)}%`;
+  // Rebuilding a Marker's icon on every tick (header clock / countdowns) restarts its
+  // CSS animations — notably the dark-state dr-ring pulse — so memoize on the values
+  // that actually change the icon's look.
+  const icon = useMemo(() => detectionIcon({ color, label, selected, ring }), [color, label, selected, ring]);
+  return (
+    <Marker
+      position={[d.lat, d.lon]}
+      zIndexOffset={selected ? 1000 : 0}
+      icon={icon}
+      eventHandlers={{ click: () => onSelect(d.id) }}
+    />
+  );
+}
+
 export default function DetectionLayer({ scene, mode, detections, selectedId, onSelect, opacity }: Props) {
   return (
     <>
@@ -49,17 +80,14 @@ export default function DetectionLayer({ scene, mode, detections, selectedId, on
         const color = stateColor(state);
         const selected = d.id === selectedId;
         return (
-          <Marker
+          <DetectionMarker
             key={d.id}
-            position={[d.lat, d.lon]}
-            zIndexOffset={selected ? 1000 : 0}
-            icon={detectionIcon({
-              color,
-              label: `${d.ship_name ?? contactId(d, mode)} / ${(d.confidence * 100).toFixed(0)}%`,
-              selected,
-              ring: state === "dark",
-            })}
-            eventHandlers={{ click: () => onSelect(d.id) }}
+            d={d}
+            mode={mode}
+            color={color}
+            selected={selected}
+            ring={state === "dark"}
+            onSelect={onSelect}
           />
         );
       })}

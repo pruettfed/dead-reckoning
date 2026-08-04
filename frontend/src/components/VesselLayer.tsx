@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Marker } from "react-leaflet";
 
@@ -25,6 +26,13 @@ type Props = {
   onData?: (vessels: Vessel[]) => void;
 };
 
+function VesselMarker({ v, selected, onSelect }: { v: Vessel; selected: boolean; onSelect: (mmsi: number) => void }) {
+  // Rebuilding a Marker's icon on every tick (header clock / countdowns) restarts its
+  // CSS transitions, so memoize on the values that actually change the icon's look.
+  const icon = useMemo(() => vesselIcon(v.cog, selected), [v.cog, selected]);
+  return <Marker position={[v.lat, v.lon]} icon={icon} eventHandlers={{ click: () => onSelect(v.mmsi) }} />;
+}
+
 export default function VesselLayer({ roi, at, hideSmallVessels, matchedMmsis, show, selectedMmsi, onSelect, onData }: Props) {
   const vessels = useQuery({
     queryKey: ["vessels", roi, at],
@@ -45,12 +53,7 @@ export default function VesselLayer({ roi, at, hideSmallVessels, matchedMmsis, s
   return (
     <>
       {visible.map((v) => (
-        <Marker
-          key={v.mmsi}
-          position={[v.lat, v.lon]}
-          icon={vesselIcon(v.cog ?? 0, v.mmsi === selectedMmsi)}
-          eventHandlers={{ click: () => onSelect(v.mmsi) }}
-        />
+        <VesselMarker key={v.mmsi} v={v} selected={v.mmsi === selectedMmsi} onSelect={onSelect} />
       ))}
     </>
   );
