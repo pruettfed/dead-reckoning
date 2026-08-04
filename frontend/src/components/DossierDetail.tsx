@@ -82,7 +82,7 @@ export default function DossierDetail({ detection, vessel, mode, scene, color }:
 
   return (
     <div>
-      <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: ".04em", color: candidate ? color : C.textHi, fontStyle: candidate ? "italic" : "normal" }}>
+      <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: ".04em", color: C.textHi, fontStyle: candidate ? "italic" : "normal" }}>
         {name}
         {candidate && <span style={{ fontFamily: MONO, fontSize: 8.5, fontStyle: "normal", letterSpacing: ".14em", color: C.label, marginLeft: 7 }}>CANDIDATE</span>}
       </div>
