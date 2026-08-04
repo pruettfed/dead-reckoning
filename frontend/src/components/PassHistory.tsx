@@ -20,12 +20,14 @@ const VISIBLE = 5;
 // line that fits under the timestamp.
 function failReason(error: string | null): string {
   const e = (error ?? "").toLowerCase();
-  if (e.includes("real data") || e.includes("coverage")) return "swath missed the box";
-  if (e.includes("credential") || e.includes("401") || e.includes("403")) return "imagery access rejected";
-  if (e.includes("timeout") || e.includes("timed out")) return "imagery fetch timed out";
-  if (e.includes("model checkpoint") || e.includes("dependencies")) return "detector unavailable";
-  if (e.includes("ais")) return "no AIS reference in window";
-  return error ? error.split("\n")[0].slice(0, 42) : "analysis error";
+  if (e.includes("real data") || e.includes("coverage")) return "Swath missed the box";
+  if (e.includes("credential") || e.includes("401") || e.includes("403")) return "Imagery access rejected";
+  if (e.includes("timeout") || e.includes("timed out")) return "Imagery fetch timed out";
+  if (e.includes("model checkpoint") || e.includes("dependencies")) return "Detector unavailable";
+  if (e.includes("ais")) return "No AIS reference in window";
+  if (!error) return "Analysis error";
+  const first = error.split("\n")[0].slice(0, 42);
+  return first.charAt(0).toUpperCase() + first.slice(1);
 }
 
 export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, expanded, onToggleExpand, accent, survey }: Props) {
@@ -40,8 +42,10 @@ export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, ex
       {shown.map((s, i) => {
         const failed = s.status === "failed";
         const processing = s.status === "processing";
-        const flag = failed ? "failed" : processing ? "processing" : i === 0 ? "LATEST" : survey ? "survey" : s.dark_count ? `${s.dark_count} dark` : "clear";
-        const flagColor = failed ? C.dark : processing ? C.amber : i === 0 ? C.amber : !survey && s.dark_count ? C.dark : null;
+        const flag = failed ? "FAILED" : processing ? "PROCESSING" : i === 0 ? "LATEST" : survey ? "SURVEY" : s.dark_count ? `${s.dark_count} DARK` : "CLEAR";
+        // Amber sits between the green of a finished latest pass and the red of
+        // a failed one — the run is still in flight.
+        const flagColor = failed ? C.dark : processing ? C.amber : i === 0 ? C.match : !survey && s.dark_count ? C.dark : null;
         return (
           <Card
             key={s.id}
