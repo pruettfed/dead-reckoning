@@ -138,3 +138,15 @@ Compose sets the first three automatically. For native dev (and for all secrets)
 | `MODEL_PATH` | `models/sar_ship.pt` | YOLOv8 checkpoint path |
 
 The complete contract lives in [`backend/.env.example`](backend/.env.example).
+
+## Acknowledgements
+
+This project builds on public data and research from the following sources.
+
+- **AIS positions** — [AISStream](https://aisstream.io), a free real-time AIS WebSocket feed.
+- **SAR imagery** — Contains modified Copernicus Sentinel data, via the [Copernicus Data Space Ecosystem](https://dataspace.copernicus.eu) (European Space Agency).
+- **Detection model training data** — the YOLOv8 checkpoint (`backend/models/sar_ship.pt`) was fine-tuned on:
+  - Cao, T.-T., Luckett, C., Williams, J., Cooke, T., Yip, B., Rajagopalan, A., Wong, S. "SARFish: Space-Based Maritime Surveillance Using Complex Synthetic Aperture Radar Imagery." *2022 International Conference on Digital Image Computing: Techniques and Applications (DICTA)*, IEEE. [doi:10.1109/DICTA56598.2022.10034640](https://doi.org/10.1109/DICTA56598.2022.10034640). Dataset (Apache 2.0): [ConnorLuckettDSTG/SARFish on HuggingFace](https://huggingface.co/datasets/ConnorLuckettDSTG/SARFish).
+  - Paolo, F., Lin, T.-t. T., Gupta, R., Goodman, B., Patel, N., Kuster, D., Kroodsma, D., Dunnmon, J. "xView3-SAR: Detecting Dark Fishing Activity Using Synthetic Aperture Radar Imagery." *NeurIPS 2022 Datasets and Benchmarks Track*. [arXiv:2206.00897](https://arxiv.org/abs/2206.00897). Challenge hosted by the Defense Innovation Unit and Global Fishing Watch: [iuu.xview.us](https://iuu.xview.us).
+
+See [`ml/README.md`](ml/README.md) for why these datasets were chosen for the fine-tune.

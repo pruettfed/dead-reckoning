@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 import { formatAgo, utcStamp } from "../countdown";
 import { C, MONO, hexA } from "../theme";
 import { Tabs } from "./ui";
@@ -24,6 +26,96 @@ function Pill({ label, value, ok }: { label: string; value?: string; ok: boolean
     <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 9px", background: hexA(color, 0.12), whiteSpace: "nowrap" }}>
       <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".1em", color }}>{label}</span>
       {value && <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".06em", color }}>{value}</span>}
+    </div>
+  );
+}
+
+type SourceLink = { label: string; text: string; href: string };
+
+const SOURCES: SourceLink[] = [
+  { label: "AIS", text: "Live vessel positions via AISStream", href: "https://aisstream.io" },
+  { label: "Satellite Imagery", text: "Contains modified Copernicus Sentinel-1 data", href: "https://dataspace.copernicus.eu" },
+  {
+    label: "Detection model",
+    text: "Trained on SARFish + xView3-SAR",
+    href: "https://github.com/pruettfed/dead-reckoning#acknowledgements",
+  },
+];
+
+function SourcesInfo() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative", display: "flex", alignItems: "center" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Data sources"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "5px 9px",
+          border: "none",
+          background: hexA(C.textDim, open ? 0.22 : 0.12),
+          color: C.textDim,
+          fontFamily: MONO,
+          fontSize: 9.5,
+          letterSpacing: ".1em",
+          whiteSpace: "nowrap",
+          cursor: "pointer",
+        }}
+      >
+        ⓘ Data sources
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 8px)",
+            right: 0,
+            zIndex: 1300,
+            width: 280,
+            padding: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            background: C.panel,
+            border: `1px solid ${C.lineStrong}`,
+            boxShadow: "0 8px 24px rgba(0,0,0,.5)",
+          }}
+        >
+          <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".14em", color: C.label }}>DATA SOURCES</span>
+          {SOURCES.map((s) => (
+            <a
+              key={s.label}
+              href={s.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "flex", flexDirection: "column", gap: 2, textDecoration: "none" }}
+            >
+              <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".06em", color: C.textHi }}>{s.label} ↗</span>
+              <span style={{ fontFamily: MONO, fontSize: 9.5, color: C.textDim, lineHeight: 1.4 }}>{s.text}</span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -86,6 +178,7 @@ export default function TopBar({ mode, onMode, counts, health, vesselsAgo, drawe
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px", borderLeft: `1px solid ${C.line}` }}>
         <Pill label="Imagery link" ok={sarOk} />
         {vesselsAgo && <Pill label="AIS Live" value={vesselsAgo} ok={aisOk} />}
+        <SourcesInfo />
       </div>
 
       {sceneAt && (
