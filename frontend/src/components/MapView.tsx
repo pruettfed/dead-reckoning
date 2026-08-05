@@ -17,6 +17,23 @@ function Recenter({ bbox }: { bbox: Bbox | null }) {
   return null;
 }
 
+function paddedBounds(b: Bbox): [[number, number], [number, number]] {
+  const lonSpan = b[2] - b[0];
+  const latSpan = b[3] - b[1];
+  return [
+    [b[1] - latSpan, b[0] - lonSpan],
+    [b[3] + latSpan, b[2] + lonSpan],
+  ];
+}
+
+function BoundsGuard({ bbox }: { bbox: Bbox | null }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setMaxBounds(bbox ? paddedBounds(bbox) : undefined);
+  }, [map, bbox]);
+  return null;
+}
+
 // Everything outside the imaged box is unobserved, so it is dimmed rather than
 // drawn as if it were surveyed.
 function OutsideDim({ sar }: { sar: Bbox }) {
@@ -62,7 +79,18 @@ function CornerMarks({ sar, color }: { sar: Bbox; color: string }) {
 export default function MapView({ roi, children }: { roi: Roi | null; children: ReactNode }) {
   const accent = roi?.mode === "survey" ? C.survey : C.accent;
   return (
-    <MapContainer center={[25.3, 121.8]} zoom={9} zoomControl={false} minZoom={3} maxZoom={15} style={{ position: "absolute", inset: 0 }}>
+    <MapContainer
+      center={[25.3, 121.8]}
+      zoom={9}
+      zoomControl={false}
+      minZoom={3}
+      maxZoom={15}
+      zoomSnap={0.25}
+      zoomDelta={0.25}
+      wheelPxPerZoomLevel={100}
+      maxBoundsViscosity={0.8}
+      style={{ position: "absolute", inset: 0 }}
+    >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
         url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
@@ -71,6 +99,7 @@ export default function MapView({ roi, children }: { roi: Roi | null; children: 
       />
       <ZoomControl position="bottomright" />
       <Recenter bbox={roi?.ais_bbox ?? null} />
+      <BoundsGuard bbox={roi?.ais_bbox ?? null} />
       {roi && (
         <>
           <OutsideDim sar={roi.sar_bbox} />
