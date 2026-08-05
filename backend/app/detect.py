@@ -11,16 +11,38 @@ so the API can answer 503 instead of crashing.
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
 
-from app.sar import SarChip
+from app.sar import SarChip, TARGET_M_PER_PX
 
 TILE_SIZE = 800  # HRSID trains at 800x800
 TILE_OVERLAP = 160
+
+# Two boxes on one hull do not have to overlap enough for IoU to see it: a hull
+# cut by a tile seam is boxed whole in one tile and as a sliver in the next
+# (IoU 0.2), and the model splits a single long hull into bow and stern boxes
+# that do not overlap at all (IoU 0). Both were producing a second detection
+# metres from the first, which fusion then had no vessel left to assign — so it
+# read as "unresolved" beside its own match, or as a second dark contact.
+#
+# So separation is also judged in metres, where the physics lives. Measured over
+# every stored detection: 13 have a nearest neighbour ≤ 77 m, the closest
+# genuinely distinct pair is 548 m, and the bulk are > 2 km. 150 m sits in that
+# gap, at under half the length of the longest hulls afloat.
+#
+# Vessels themselves do get closer than this — AIS puts 182 pairs under 150 m in
+# one skagen_kattegat scene alone, moored and rafted up. The gate is safe not
+# because that cannot happen but because the detector does not resolve it: of
+# those 182, only 3 were large hulls clear of the land mask, and none produced a
+# detection within 500 m. This merges what 10 m/px already blurred into one
+# return. Should the detector ever separate two anchored ships at this range,
+# this costs the second one — recheck against AIS before widening it.
+MIN_SEPARATION_M = 150.0
 
 CONF_HIGH = 0.6
 CONF_MEDIUM = 0.25
@@ -81,13 +103,30 @@ def _iou(a: PixelDetection, b: PixelDetection) -> float:
     return inter / (area_a + area_b - inter)
 
 
+def _centre_distance_px(a: PixelDetection, b: PixelDetection) -> float:
+    ax, ay = (a[0] + a[2]) / 2, (a[1] + a[3]) / 2
+    bx, by = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+    return math.hypot(ax - bx, ay - by)
+
+
 def merge_detections(
-    detections: list[PixelDetection], iou_threshold: float = 0.5
+    detections: list[PixelDetection],
+    iou_threshold: float = 0.5,
+    min_separation_m: float = MIN_SEPARATION_M,
 ) -> list[PixelDetection]:
-    """Greedy NMS in chip pixel coords — dedupes hits from overlapping tiles."""
+    """Greedy NMS in chip pixel coords — dedupes hits from overlapping tiles.
+
+    Suppresses on either overlap or centre separation: boxes on one hull can be
+    nested, slivered or disjoint, none of which IoU alone catches.
+    """
+    min_separation_px = min_separation_m / TARGET_M_PER_PX
     kept: list[PixelDetection] = []
     for det in sorted(detections, key=lambda d: d[4], reverse=True):
-        if all(_iou(det, k) < iou_threshold for k in kept):
+        if all(
+            _iou(det, k) < iou_threshold
+            and _centre_distance_px(det, k) >= min_separation_px
+            for k in kept
+        ):
             kept.append(det)
     return kept
 

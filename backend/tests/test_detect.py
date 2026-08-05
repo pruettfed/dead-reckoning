@@ -67,8 +67,35 @@ class TestMergeDetections:
         assert sorted(merge_detections([a, b]), key=lambda d: d[4]) == [b, a]
 
     def test_partial_overlap_below_threshold_kept(self):
-        a = (0.0, 0.0, 10.0, 10.0, 0.9)
-        b = (8.0, 8.0, 18.0, 18.0, 0.8)  # IoU ≈ 0.02
+        a = (0.0, 0.0, 40.0, 40.0, 0.9)
+        b = (32.0, 32.0, 72.0, 72.0, 0.8)  # IoU ≈ 0.02, centres 450 m apart
+        assert len(merge_detections([a, b])) == 2
+
+    def test_sliver_at_tile_seam_merged(self):
+        """A hull cut by a seam: one tile boxes the whole ship, one a sliver."""
+        full = (0.0, 0.0, 30.0, 30.0, 0.50)
+        sliver = (0.0, 0.0, 6.0, 30.0, 0.42)  # IoU 0.2 — survives an IoU-only gate
+        assert merge_detections([full, sliver]) == [full]
+
+    def test_split_hull_boxes_merged(self):
+        """Bow and stern boxed separately: no overlap at all, so IoU cannot see it."""
+        bow = (0.0, 0.0, 10.0, 20.0, 0.32)
+        stern = (12.0, 0.0, 22.0, 20.0, 0.30)
+        assert merge_detections([bow, stern]) == [bow]
+
+    def test_chain_collapses_onto_highest_confidence(self):
+        """Kharg 1035/1038/1040: three boxes on one hull, spanning 130 m."""
+        boxes = [
+            (0.0, 0.0, 20.0, 20.0, 0.32),
+            (7.0, 0.0, 27.0, 20.0, 0.31),
+            (13.0, 0.0, 33.0, 20.0, 0.27),
+        ]
+        assert merge_detections(boxes) == [boxes[0]]
+
+    def test_neighbouring_vessels_kept(self):
+        """550 m apart — the closest genuinely distinct pair measured in the DB."""
+        a = (0.0, 0.0, 20.0, 20.0, 0.52)
+        b = (55.0, 0.0, 75.0, 20.0, 0.38)
         assert len(merge_detections([a, b])) == 2
 
 
@@ -100,6 +127,13 @@ class TestRunDetection:
     def test_seam_duplicate_merged_to_single_detection(self):
         detections = run_detection(self.make_chip(), BrightSpotDetector())
         assert len(detections) == 1
+
+    def test_hull_cut_by_seam_merged_to_single_detection(self):
+        """Ship straddling the last seam: one tile sees 15 px of it, one sees all 40."""
+        pixels = np.zeros((800, 2000), dtype=np.uint8)
+        pixels[300:320, 1425:1465] = 255
+        chip = SarChip(pixels=pixels, bbox=(0.0, 0.0, 2.0, 0.8), width=2000, height=800)
+        assert len(run_detection(chip, BrightSpotDetector())) == 1
 
     def test_centroid_geolocated(self):
         det = run_detection(self.make_chip(), BrightSpotDetector())[0]
