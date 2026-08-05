@@ -24,6 +24,11 @@ body {
 }
 .leaflet-control-attribution a { color: #5c686e !important; }
 .dr-sar-overlay { image-rendering: pixelated; }
+/* Leaflet's own zoom transition is 0.25s. Shortening it keeps the tile-swap
+   masking while cutting the window where the +/− buttons ignore presses. */
+.leaflet-zoom-anim .leaflet-zoom-animated {
+  transition: transform 0.12s cubic-bezier(0, 0, 0.25, 1);
+}
 .leaflet-bar a {
   background: rgba(16, 19, 22, .86) !important;
   color: #9aa8ae !important;
