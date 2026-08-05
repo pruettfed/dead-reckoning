@@ -9,14 +9,8 @@ function bounds(b: Bbox): [[number, number], [number, number]] {
   return [[b[1], b[0]], [b[3], b[2]]];
 }
 
-function Recenter({ bbox }: { bbox: Bbox | null }) {
-  const map = useMap();
-  useEffect(() => {
-    if (bbox) map.fitBounds(bounds(bbox), { padding: [24, 24] });
-  }, [map, bbox]);
-  return null;
-}
-
+// Panning is held to a generous margin around the ROI — wide enough to explore
+// the surrounding water, tight enough that the scene never drifts off-screen.
 function paddedBounds(b: Bbox): [[number, number], [number, number]] {
   const lonSpan = b[2] - b[0];
   const latSpan = b[3] - b[1];
@@ -26,10 +20,16 @@ function paddedBounds(b: Bbox): [[number, number], [number, number]] {
   ];
 }
 
-function BoundsGuard({ bbox }: { bbox: Bbox | null }) {
+// Recentering and the pan limit have to happen in this order, in one effect:
+// fitBounds runs through _limitCenter, so recentering while the *previous*
+// ROI's maxBounds is still set clamps the new region off-screen.
+function FocusRoi({ bbox }: { bbox: Bbox | null }) {
   const map = useMap();
   useEffect(() => {
-    map.setMaxBounds(bbox ? paddedBounds(bbox) : undefined);
+    map.setMaxBounds(undefined);
+    if (!bbox) return;
+    map.fitBounds(bounds(bbox), { padding: [24, 24], animate: false });
+    map.setMaxBounds(paddedBounds(bbox));
   }, [map, bbox]);
   return null;
 }
@@ -87,7 +87,12 @@ export default function MapView({ roi, children }: { roi: Roi | null; children: 
       maxZoom={15}
       zoomSnap={0.25}
       zoomDelta={0.25}
-      wheelPxPerZoomLevel={100}
+      wheelPxPerZoomLevel={40}
+      // The 250 ms zoom animation holds a CSS-scaled copy of the old geometry
+      // and swallows any input fired during it — that is the lag and the snap.
+      // At quarter-level steps each zoom is small enough to read as smooth
+      // without it.
+      zoomAnimation={false}
       maxBoundsViscosity={0.8}
       style={{ position: "absolute", inset: 0 }}
     >
@@ -98,8 +103,7 @@ export default function MapView({ roi, children }: { roi: Roi | null; children: 
         maxZoom={19}
       />
       <ZoomControl position="bottomright" />
-      <Recenter bbox={roi?.ais_bbox ?? null} />
-      <BoundsGuard bbox={roi?.ais_bbox ?? null} />
+      <FocusRoi bbox={roi?.ais_bbox ?? null} />
       {roi && (
         <>
           <OutsideDim sar={roi.sar_bbox} />
