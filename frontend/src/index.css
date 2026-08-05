@@ -23,6 +23,7 @@ body {
   font-size: 9px !important;
 }
 .leaflet-control-attribution a { color: #5c686e !important; }
+.dr-sar-overlay { image-rendering: pixelated; }
 .leaflet-bar a {
   background: rgba(16, 19, 22, .86) !important;
   color: #9aa8ae !important;

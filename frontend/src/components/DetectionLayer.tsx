@@ -72,6 +72,7 @@ export default function DetectionLayer({ scene, mode, detections, selectedId, on
           bounds={overlayBounds(scene.imaged_bbox)}
           opacity={opacity}
           zIndex={250}
+          className="dr-sar-overlay"
         />
       )}
       <Polygon
