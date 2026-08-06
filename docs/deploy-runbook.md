@@ -117,8 +117,14 @@ Notes:
   tuning vars unset — their defaults (baked into `config.py`) are what's
   actually running today. Only override one if you're deliberately retuning
   it, and if you do, update `.env.example` to match so the two don't drift.
-- `PORT` — don't set this yourself. Railway injects it, and the Dockerfile's
-  `CMD` already reads `${PORT:-8000}`.
+- `PORT` — don't set this yourself; Railway injects it, and the Dockerfile's
+  `CMD` reads `${PORT:-8000}` so it wins over the 8000 fallback whenever
+  Railway sets one. **This has to agree with `web`'s Networking target
+  port**, or you get "Application failed to respond" with the app otherwise
+  perfectly healthy. Railway's injected `PORT` is frequently `8080`, not
+  8000 — check the deploy log for `Uvicorn running on http://0.0.0.0:PORT`
+  and make sure Networking's target port (see 1.5) matches that number, not
+  whatever you might have typed there before ever seeing this log line.
 
 `web` will redeploy automatically when you save variables. Give it a minute,
 then check **Deployments → \[latest\] → View Logs** for:
@@ -136,7 +142,14 @@ using their DNS panel).
 1. Railway: `web` → **Settings → Networking → Custom Domain** → enter
    `dark-vessel.pruettfed.com` → **Add**. Railway shows you a CNAME target
    (something like `xyz.up.railway.app`) and may also show a TXT record for
-   verification.
+   verification. If this is the first networking configured for `web`,
+   Railway will also ask **"Enter the port your app is listening on."** Don't
+   guess — check the deploy log first for `Uvicorn running on
+   http://0.0.0.0:PORT` and enter that exact number. Guessing wrong here (or
+   entering 8000 on the assumption that's what the Dockerfile defaults to,
+   when Railway's own injected `PORT` overrides that default) is what causes
+   "Application failed to respond" with an otherwise fully healthy app — see
+   the `PORT` note in 1.4.
 2. Vercel dashboard → your account → **Domains** → `pruettfed.com` → DNS
    records (or **Settings → Domains** depending on where it's registered vs.
    just DNS-managed).
