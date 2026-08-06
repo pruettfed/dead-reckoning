@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ from app import models  # noqa: F401  (registers models on Base.metadata)
 from app import devtools, fusion, landmask, pipeline, scheduler, sources
 from app.config import Settings, get_settings
 from app.database import Base, SessionLocal, engine, get_session
-from app.detect import DetectorUnavailable, load_detector
+from app.detect import DetectorSpec
 from app.flags import flag_for_mmsi
 from app.ingest import run_ingest, run_retention
 from app.rois import ROI, ROIS, get_roi
@@ -340,12 +341,17 @@ async def trigger_analysis(roi: str, response: Response) -> dict:
         raise HTTPException(status_code=409, detail=f"analysis already running for {roi_obj.name!r}")
     if not (settings.cdse_client_id and settings.cdse_client_secret):
         raise HTTPException(status_code=503, detail="CDSE_CLIENT_ID / CDSE_CLIENT_SECRET not configured")
-    try:
-        detector = await asyncio.to_thread(
-            load_detector, settings.sar_model_path, settings.detection_conf_threshold
+    # Presence check only; the model is loaded in the detection subprocess, not
+    # here. Answering 503 before spending anything is the point.
+    if not os.path.exists(settings.sar_model_path):
+        raise HTTPException(
+            status_code=503,
+            detail=f"model checkpoint not found at {settings.sar_model_path!r}",
         )
-    except DetectorUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    spec = DetectorSpec(
+        model_path=settings.sar_model_path,
+        conf_threshold=settings.detection_conf_threshold,
+    )
     try:
         scene, status = await pipeline.find_target_scene(roi_obj)
     except pipeline.NoEligibleScene as exc:
@@ -353,7 +359,7 @@ async def trigger_analysis(roi: str, response: Response) -> dict:
 
     if status == "processed":
         return {"scene_id": scene.id, "status": "processed"}  # cached result, 0 PU
-    pipeline.start_analysis(roi_obj, scene, detector)
+    pipeline.start_analysis(roi_obj, scene, spec)
     response.status_code = 202
     return {"scene_id": scene.id, "status": "processing"}
 
@@ -554,6 +560,12 @@ async def analysis_schedule(
     }
     recent = (await session.execute(MOST_RECENT_ANALYSIS)).mappings().first()
     return {
+        # Why the scheduler is or is not working. `regions` is empty before the
+        # first sweep and also when the scheduler never started at all; without
+        # this the two are indistinguishable to the client, and a deployment
+        # with no credentials or no checkpoint looks identical to one that is
+        # simply still warming up.
+        "scheduler": scheduler.status(),
         # Empty until the scheduler's first sweep lands, or whenever it is
         # disabled — the client renders that state rather than guessing.
         "regions": scheduler.snapshot(last_processed, datetime.now(tz=timezone.utc)),

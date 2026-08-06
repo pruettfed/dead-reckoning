@@ -188,7 +188,7 @@ export default function App() {
             accent={modeColor}
             survey={survey}
           />
-          <NextAcquisition roi={roi} roiLabel={roiObj?.label ?? ""} accent={modeColor} now={now} />
+          <NextAcquisition roi={roi} roiLabel={roiObj?.label ?? ""} accent={modeColor} now={now} scheduler={schedule.data?.scheduler} />
         </LeftRail>
         <div style={{ flex: 1, minWidth: 0, position: "relative", background: C.map }}>
           <MapView roi={roiObj}>

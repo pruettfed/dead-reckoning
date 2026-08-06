@@ -18,7 +18,8 @@ from sqlalchemy import text
 from app import sources
 from app.config import get_settings
 from app.database import SessionLocal
-from app.detect import Detector, run_detection
+from app.detect import DetectorSpec
+from app.detect_worker import run_detection_isolated
 from app.fusion import coverage_ok, fuse_scene, insert_detections
 from app.landmask import mark_land_detections
 from app.rois import ROI
@@ -280,10 +281,10 @@ async def find_target_scene(
     return scene, status
 
 
-def start_analysis(roi: ROI, scene: SarScene, detector: Detector) -> asyncio.Task:
+def start_analysis(roi: ROI, scene: SarScene, spec: DetectorSpec) -> asyncio.Task:
     """Run an analysis in the background. Returns the task so a caller that wants
     to serialize work (the scheduler) can await it; the HTTP path ignores it."""
-    task = asyncio.create_task(_run_analysis(roi, scene, detector), name=f"analysis-{roi.name}")
+    task = asyncio.create_task(_run_analysis(roi, scene, spec), name=f"analysis-{roi.name}")
     _in_flight[roi.name] = task
     task.add_done_callback(lambda _: _in_flight.pop(roi.name, None))
     return task
@@ -339,7 +340,7 @@ STORE_OVERVIEW = text(
 )
 
 
-async def _run_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
+async def _run_analysis(roi: ROI, scene: SarScene, spec: DetectorSpec) -> None:
     settings = get_settings()
     # The slices the Process API will mosaic for this pass (free catalog call).
     window = await search_scenes(
@@ -403,7 +404,7 @@ async def _run_analysis(roi: ROI, scene: SarScene, detector: Detector) -> None:
                     f"{MIN_FOOTPRINT_COVERAGE:.0%} — the catalog footprint that passed "
                     "the pre-fetch check overstated this pass's real coverage"
                 )
-        detections = await asyncio.to_thread(run_detection, chip, detector)
+        detections = await run_detection_isolated(chip, spec)
         async with SessionLocal() as session:
             await insert_detections(session, scene.id, detections)
             # Before fusion: a masked detection must never reach the AIS match.

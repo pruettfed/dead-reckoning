@@ -127,11 +127,32 @@ export type NextPass = {
 //                    products hours after acquisition, so the wait is normal
 // scheduled        — pass still ahead
 // unknown          — fewer than three recent passes, so no interval to project
+// warming_up       — scheduler is holding every region until AIS has depth
 export type ScheduleState =
   | "analyzing"
   | "awaiting_publication"
   | "scheduled"
-  | "unknown";
+  | "unknown"
+  | "warming_up";
+
+// Why the scheduler is or is not analyzing. `regions` alone cannot say: it is
+// empty both before the first sweep and when the scheduler never started.
+//   starting    — process is up, the task has not reached its first check
+//   disabled    — SCHEDULER_ENABLED=false
+//   idle        — terminal: no CDSE credentials, or no model checkpoint
+//   warming_up  — waiting for the AIS buffer to reach SCHEDULER_WARMUP_HOURS
+//   running     — sweeping
+export type SchedulerState =
+  | "starting"
+  | "disabled"
+  | "idle"
+  | "warming_up"
+  | "running";
+
+export type SchedulerStatus = {
+  state: SchedulerState;
+  detail: string;
+};
 
 export type ScheduleRow = {
   name: string;
@@ -158,6 +179,7 @@ export type MostRecentAnalysis = {
 };
 
 export type Schedule = {
+  scheduler: SchedulerStatus;
   // Empty until the scheduler's first sweep lands, or while it is disabled.
   regions: ScheduleRow[];
   // Null until the first analysis completes.

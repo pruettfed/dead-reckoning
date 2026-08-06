@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
     scheduler_interval_seconds: float = Field(default=900.0, alias="SCHEDULER_INTERVAL_SECONDS")
     pu_monthly_ceiling: float = Field(default=25_000.0, alias="PU_MONTHLY_CEILING")
+    # AIS buffer depth required before the *first* sweep. A fresh database has
+    # no AIS, and a survey ROI has no AIS gate of its own (fusion is skipped),
+    # so without this the first sweep after a cold deploy buys pixels for six
+    # survey regions while every fused region is still refusing for lack of a
+    # reference. Measured against min(ais_positions.time), so a redeploy onto a
+    # populated database satisfies it on the first check and never waits.
+    scheduler_warmup_hours: float = Field(default=6.0, alias="SCHEDULER_WARMUP_HOURS")
+    # Ceiling on that wait. Without a cap, a deployment with no AISSTREAM_API_KEY
+    # would block the scheduler forever — ingest returns immediately and the
+    # buffer stays empty — and survey regions need no AIS to be correct.
+    scheduler_warmup_max_hours: float = Field(default=8.0, alias="SCHEDULER_WARMUP_MAX_HOURS")
 
     # Fusion by dead reckoning — measured defaults
     ais_fix_max_age_s: float = Field(default=1800.0, alias="AIS_FIX_MAX_AGE_S")
