@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, R
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
 from app import devtools, failures, fusion, landmask, pipeline, schemas, scheduler, sources
@@ -21,7 +20,7 @@ from app.database import Base, SessionLocal, engine, get_session
 from app.detect import DetectorSpec
 from app.flags import flag_for_mmsi
 from app.ingest import run_ingest, run_retention
-from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
+from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware, TrustedHostMiddleware
 from app.rois import ROI, ROIS, get_roi
 from app.scheduler import run_scheduler
 from app.security import check_admin_key

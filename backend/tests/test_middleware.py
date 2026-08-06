@@ -1,12 +1,17 @@
 """Rate limiting and security headers — the controls on an unauthenticated API."""
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from app.middleware import (
     BASE_HEADERS,
     CSP,
     DEFAULT_RATE,
     DEFAULT_WINDOW,
+    HEALTHCHECK_PATH,
     SWEEP_EVERY,
     TokenBuckets,
+    TrustedHostMiddleware,
 )
 
 
@@ -126,3 +131,44 @@ class TestThroughTheRealApp:
         assert last.status_code == 429
         assert last.headers["X-Content-Type-Options"] == "nosniff"
         assert last.headers["Retry-After"]
+
+
+class TestTrustedHostMiddleware:
+    """Regression coverage for a real prod incident: Railway's healthcheck
+    prober hits the container over its internal network, never through the
+    public custom domain, so its Host header can never be in ALLOWED_HOSTS.
+    A plain trusted-host check failed every deploy's healthcheck regardless
+    of whether the app was healthy — this is the exemption that fixes it.
+    """
+
+    def client(self, allowed_hosts=("dark-vessel.pruettfed.com",)):
+        app = FastAPI()
+
+        @app.get(HEALTHCHECK_PATH)
+        async def health():
+            return {"status": "ok"}
+
+        @app.get("/api/rois")
+        async def rois():
+            return []
+
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(allowed_hosts))
+        return TestClient(app)
+
+    def test_healthcheck_passes_with_no_matching_host(self):
+        r = self.client().get(HEALTHCHECK_PATH, headers={"Host": "100.64.0.2"})
+        assert r.status_code == 200
+
+    def test_healthcheck_passes_with_no_host_header_at_all(self):
+        # httpx/TestClient always sends *some* Host, so drive dispatch directly
+        # to cover a prober that omits it entirely.
+        r = self.client().get(HEALTHCHECK_PATH)
+        assert r.status_code == 200
+
+    def test_other_paths_still_reject_a_mismatched_host(self):
+        r = self.client().get("/api/rois", headers={"Host": "evil.example.com"})
+        assert r.status_code == 400
+
+    def test_matching_host_is_allowed_through(self):
+        r = self.client().get("/api/rois", headers={"Host": "dark-vessel.pruettfed.com"})
+        assert r.status_code == 200

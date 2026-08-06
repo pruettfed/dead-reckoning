@@ -96,6 +96,15 @@ LOG_LEVEL=INFO
 ```
 
 Notes:
+- `ALLOWED_HOSTS` is safe to set here — `app/middleware.py`'s `TrustedHostMiddleware`
+  exempts `/api/health` specifically, because Railway's healthcheck prober
+  hits the container over its internal network rather than through
+  `dark-vessel.pruettfed.com`, and would otherwise get rejected on every
+  attempt with a 400 no matter how healthy the app actually is. If you're
+  seeing exactly that — every healthcheck attempt failing with the app's own
+  logs showing "GET /api/health ... 400 Bad Request" and nothing else
+  wrong — confirm you're on a build that includes this exemption; clearing
+  `ALLOWED_HOSTS` is the immediate unblock if not.
 - `${{db.DATABASE_URL}}` references the `DATABASE_URL` variable you set on
   `db` in step 1.3.5 — click the field, choose "Add Reference", pick `db`.
   It's a plain `postgresql://` URL; the app normalizes the driver prefix

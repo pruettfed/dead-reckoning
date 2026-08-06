@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, PlainTextResponse, Response
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,29 @@ BASE_HEADERS = {
     "Content-Security-Policy": CSP,
     "X-Frame-Options": "DENY",  # frame-ancestors covers modern browsers; this covers old ones.
 }
+
+
+# Railway's healthcheck prober hits the container over its internal network,
+# never through the public custom domain — its Host header can't match
+# ALLOWED_HOSTS by construction, so a plain TrustedHostMiddleware fails every
+# deploy's healthcheck regardless of whether the app is actually healthy. The
+# health endpoint carries nothing sensitive, so it's exempt; every other path
+# is still pinned.
+HEALTHCHECK_PATH = "/api/health"
+
+
+class TrustedHostMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, *, allowed_hosts: list[str]):
+        super().__init__(app)
+        self._allowed = set(allowed_hosts)
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path == HEALTHCHECK_PATH:
+            return await call_next(request)
+        host = (request.headers.get("host") or "").split(":")[0]
+        if host not in self._allowed:
+            return PlainTextResponse("Invalid host header", status_code=400)
+        return await call_next(request)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
