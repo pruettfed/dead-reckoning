@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     # Seaward metres added to the coastline when masking detections. 0 masks
     # only what is strictly on land; widening it starts eating berthed and
     # anchored vessels. Retuning is free — see landmask.py.
-    land_mask_buffer_m: float = Field(default=0.0, alias="LAND_MASK_BUFFER_M")
+    land_mask_buffer_m: float = Field(default=1.0, alias="LAND_MASK_BUFFER_M")
 
     @field_validator("database_url", mode="before")
     @classmethod
