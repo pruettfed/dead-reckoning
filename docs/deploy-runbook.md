@@ -63,7 +63,21 @@ committed `backend/models/sar_ship.pt` checkpoint.)
    internal-only `<service>.railway.internal` hostname) — don't set that one.
 6. **Settings → Volumes** → add a volume, mount path `/var/lib/postgresql/data`.
    Without this, every redeploy wipes the database.
-7. Deploy `db`.
+7. Add one more variable on `db`:
+   ```
+   PGDATA=/var/lib/postgresql/data/pgdata
+   ```
+   Without this, `initdb` fails permanently: Railway's fresh volume mount
+   leaves a `lost+found` directory at the mount root, and Postgres refuses to
+   initialize a data directory that isn't empty — the official image's own
+   documented reason to point `PGDATA` at a subdirectory of the mount rather
+   than the mount root itself. Railway's own managed Postgres template
+   already does this internally, which is why you won't have seen it before;
+   we're not using that template (no PostGIS), so it's on us to set it.
+8. Deploy `db`. Watch its logs for `database system is ready to accept
+   connections`. If you see `initdb: error: directory ... exists but is not
+   empty` instead, this variable is missing or the deploy predates adding it
+   — add/confirm it and redeploy `db` again.
 
 ### 1.4 Configure `web`'s environment variables
 
