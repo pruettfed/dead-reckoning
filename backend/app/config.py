@@ -10,7 +10,12 @@ MIN_KEY_LENGTH = 32
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Hit in prod: a value pasted from a fenced code block into Railway's
+    # variable UI carried a trailing newline straight through into DATABASE_URL,
+    # so asyncpg went looking for a database literally named "dvd\n". Strips
+    # every plain str field — also guards CDSE/API keys, which have the same
+    # paste-from-a-code-block exposure and no validator of their own to catch it.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", str_strip_whitespace=True)
 
     database_url: str = Field(alias="DATABASE_URL")
     cors_origins: Annotated[list[str], NoDecode] = Field(alias="CORS_ORIGINS")
@@ -76,6 +81,8 @@ class Settings(BaseSettings):
     @classmethod
     def _require_async_driver(cls, value: str) -> str:
         """Force the asyncpg driver onto the DSN — hosting platforms hand out plain postgresql://."""
+        if isinstance(value, str):
+            value = value.strip()  # belt-and-suspenders: this runs before str_strip_whitespace does
         if isinstance(value, str) and value.startswith("postgres"):
             scheme, sep, rest = value.partition("://")
             if sep and "+" not in scheme:
