@@ -1,19 +1,12 @@
 """Response models for the public API.
 
-Every read endpoint is unauthenticated, and every one of them is served from a
-hand-written `text()` query with an explicit column list. That was safe but only
-by convention: a field reached the client because the SQL asked for it, so
-adding a column to a SELECT published it. That is exactly how `sar_scenes.error`
-came to be served raw.
+Every read endpoint returns hand-built dicts from a raw SQL SELECT, so a field
+reached the client purely because the query asked for it — how `sar_scenes.error`
+came to be served raw. These models make the response surface a declaration:
+FastAPI filters every response through them, dropping unknown keys rather than
+erroring on a schema change.
 
-These models make the response surface a declaration instead. FastAPI filters
-every response through them, so a new column is invisible until someone adds it
-here on purpose. `extra="forbid"` is deliberately not used — the models drop
-unknown keys rather than erroring, which is the behaviour that keeps a
-schema change from taking the API down.
-
-Field names match the SQL aliases exactly; the frontend types in
-`frontend/src/types.ts` mirror these.
+Field names match the SQL aliases; frontend/src/types.ts mirrors these.
 """
 
 from __future__ import annotations

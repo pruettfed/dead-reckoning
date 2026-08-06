@@ -41,10 +41,7 @@ REAP_INTERRUPTED = text(
 )
 
 
-# Compose orders startup with `depends_on: service_healthy`; a hosting platform
-# has no equivalent, so a cold deploy routinely brings the app up before
-# Postgres accepts connections. Without this the container crash-loops through
-# its restart budget on what is a few seconds of ordinary startup skew.
+# A hosting platform has no depends_on, so a cold deploy can start before Postgres does.
 DB_CONNECT_ATTEMPTS = 10
 DB_CONNECT_BACKOFF = 3.0
 
@@ -71,11 +68,7 @@ async def _wait_for_database() -> None:
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await _wait_for_database()
     async with engine.begin() as conn:
-        # PostGIS is not optional here — four tables carry Geography columns and
-        # the fusion and land-mask queries are ST_* throughout. The postgis
-        # Docker image installs it at initdb, but a managed Postgres will not,
-        # and create_all would then fail on the first Geography column with an
-        # unknown-type error rather than saying what is missing.
+        # A managed Postgres won't have this pre-installed like the postgis image does.
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
         await conn.run_sync(Base.metadata.create_all)
         await landmask.apply_schema(conn)
@@ -131,18 +124,10 @@ app.add_middleware(
     allow_methods=["GET", "OPTIONS"] if settings.is_production else ["*"],
     allow_headers=["Content-Type"] if settings.is_production else ["*"],
 )
-# Starlette makes the *last* registered middleware the outermost, so this block
-# reads inside-out: CORS is innermost, then the rate limiter, then host pinning,
-# with security headers wrapping everything.
-#
-# The order matters. A rate-limited caller is turned away before any handler or
-# database session is touched, but its 429 is still a response a browser
-# renders, so the header layer has to sit outside the limiter — with these two
-# the other way round the 429 went out bare.
+# Starlette makes the last-registered middleware outermost, so headers must wrap
+# the rate limiter — otherwise a 429 goes out with no security headers at all.
 app.add_middleware(RateLimitMiddleware)
 if settings.allowed_hosts:
-    # Host-header pinning. Only meaningful with an explicit list, so it is opt-in
-    # rather than defaulted to a wildcard that would silently do nothing.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 app.add_middleware(SecurityHeadersMiddleware, production=settings.is_production)
 
@@ -151,9 +136,7 @@ devtools.register_devtools(app, settings)
 
 @app.get("/api/health", response_model=schemas.Health)
 async def health(session: Annotated[AsyncSession, Depends(get_session)]) -> dict:
-    # Readiness, not just liveness: this is the platform's health check, and a
-    # process that is up but cannot reach Postgres serves nothing but errors.
-    # Reporting "ok" unconditionally meant a bad DATABASE_URL looked healthy.
+    # Readiness, not just liveness — a bad DATABASE_URL used to still report "ok".
     try:
         await session.execute(text("SELECT 1"))
         database = "ok"
@@ -305,9 +288,7 @@ TRACK_QUERY = text(
 )
 
 
-# Retention prunes AIS positions at AIS_RETENTION_DAYS, so asking for a longer
-# window can only ever return the same rows. Resolved at import because Query
-# bounds are static.
+# A window longer than retention can only return the same rows.
 MAX_TRACK_HOURS = 24 * settings.ais_retention_days
 
 
@@ -315,9 +296,7 @@ MAX_TRACK_HOURS = 24 * settings.ais_retention_days
 async def vessel_track(
     mmsi: int,
     session: Annotated[AsyncSession, Depends(get_session)],
-    # Bounded by validation rather than clamped afterwards: the old `ge=1` with
-    # a silent min() accepted any value and quietly narrowed it, which reads as
-    # if arbitrary windows were legal.
+    # Bounded by validation, not clamped after — was ge=1 with a silent min().
     hours: int = Query(default=12, ge=1, le=MAX_TRACK_HOURS),
 ) -> list[dict]:
     rows = (
@@ -387,14 +366,7 @@ async def require_analysis_key(
     request: Request,
     x_analysis_key: Annotated[str | None, Header()] = None,
 ) -> None:
-    """Re-check the environment per request, then the key.
-
-    register_ops already refuses to mount this router in production, but that
-    decision is made once at import against a module global. Reading
-    app.state.settings here means the gate is re-evaluated on every call and
-    stays decidable in a test that swaps settings — the same two-lock shape
-    devtools uses. 404, not 403, so the endpoint's existence is not confirmed.
-    """
+    """Re-check the environment per request, then the key — same two-lock shape as devtools."""
     request_settings: Settings = request.app.state.settings
     if request_settings.is_production:
         raise HTTPException(status_code=404, detail="Not Found")
@@ -503,9 +475,7 @@ async def list_scenes(
         await session.execute(SCENES_QUERY, {"roi": roi_obj.name, "limit": limit})
     ).mappings().all()
     return [
-        # `error` never crosses the network. It is arbitrary exception text on
-        # an unauthenticated endpoint; `failure_reason` is the closed set of
-        # phrases the UI actually displays. See app/failures.py.
+        # `error` is arbitrary exception text; `failure_reason` is what ships. See failures.py.
         {k: v for k, v in r.items() if k != "error"}
         | {
             "footprint": json.loads(r["footprint"]),
@@ -667,11 +637,7 @@ async def analysis_schedule(
     }
     recent = (await session.execute(MOST_RECENT_ANALYSIS)).mappings().first()
     return {
-        # Why the scheduler is or is not working. `regions` is empty before the
-        # first sweep and also when the scheduler never started at all; without
-        # this the two are indistinguishable to the client, and a deployment
-        # with no credentials or no checkpoint looks identical to one that is
-        # simply still warming up.
+        # Distinguishes "empty, never started" from "empty, still warming up".
         "scheduler": scheduler.status(),
         # Empty until the scheduler's first sweep lands, or whenever it is
         # disabled — the client renders that state rather than guessing.

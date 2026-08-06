@@ -1,9 +1,4 @@
-"""Serving the SPA and the API from one origin.
-
-The security posture depends on this: with the frontend served here there is no
-cross-origin request for CORS to police and no second public hostname whose
-whole surface is the API.
-"""
+"""Serving the SPA and the API from one origin — no CORS, no second public hostname."""
 
 import pytest
 from fastapi import FastAPI

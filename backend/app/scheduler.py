@@ -38,23 +38,16 @@ logger = logging.getLogger(__name__)
 # fourteen back-to-back queries every interval is needlessly rude.
 ROI_STAGGER_SECONDS = 2.0
 
-# How often the warm-up gate re-checks the AIS buffer. Short enough that a
-# deploy onto an empty database starts promptly once ingest catches up, long
-# enough that the query is free.
+# How often the warm-up gate re-checks the AIS buffer.
 WARMUP_POLL_SECONDS = 60.0
 
-# Depth of the AIS buffer, globally rather than per ROI. `find_target_scene`
-# already refuses a *fused* region whose own ais_bbox is empty; this answers the
-# different question of whether ingest has been running long enough at all,
-# which is what gates the survey regions too.
+# Global rather than per ROI: whether ingest has run long enough at all,
+# which is what gates the survey regions (they have no per-ROI AIS check).
 MIN_AIS_TIME = text("SELECT min(time) FROM ais_positions")
 
 _schedule: dict[str, dict] = {}
 
-# Why the scheduler is or is not analyzing, for /api/analysis/schedule. Three of
-# run_scheduler's exits are terminal (disabled, no CDSE credentials, no
-# checkpoint) and used to be visible only in the logs — a deployment could have
-# its entire SAR half dead while the UI showed an ordinary blank countdown.
+# Surfaced on /api/analysis/schedule so a dead scheduler is visible, not just logged.
 _status: dict = {"state": "starting", "detail": "scheduler has not started yet"}
 
 
@@ -120,15 +113,9 @@ def warmup_ready(
 ) -> tuple[bool, str]:
     """Whether the scheduler may take its first sweep, and why.
 
-    Depth is measured from the oldest AIS fix in the database rather than from
-    process start, so it is durable across restarts: a redeploy onto a populated
-    database is ready on the first check and never waits. It saturates at
-    AIS_RETENTION_DAYS, which is fine — anything past `required_hours` is ready.
-
-    The cap is not a nicety. `min_ais_time` stays NULL forever when
-    AISSTREAM_API_KEY is unset (run_ingest returns immediately), and survey
-    regions are correct with no AIS at all, so an uncapped gate would strand
-    half the registry on a deployment that never intended to fuse anything.
+    Measured from the oldest AIS fix rather than process start, so a redeploy
+    onto a populated database is ready immediately. The cap releases regions
+    even with no AIS at all, since AISSTREAM_API_KEY may be unset.
     """
     if min_ais_time is not None:
         depth_h = (now - min_ais_time).total_seconds() / 3600
@@ -157,8 +144,7 @@ def schedule_state(
     if analyzing:
         return "analyzing"
     if warming_up:
-        # No region can be analyzed yet, whatever the catalog says. Reporting a
-        # countdown here would promise work the scheduler is deliberately holding.
+        # Don't show a countdown for work the scheduler is deliberately holding.
         return "warming_up"
     if next_expected_at is None:
         # estimate_next_pass needs three distinct passes to take a median.
@@ -310,11 +296,8 @@ async def run_scheduler(stop: asyncio.Event) -> None:
         _set_status("idle", "CDSE_CLIENT_ID / CDSE_CLIENT_SECRET not configured")
         logger.warning("CDSE_CLIENT_ID / CDSE_CLIENT_SECRET not set — scheduler idle")
         return
-    # Presence check only. Loading the checkpoint here would import torch into
-    # the API process and hold ~1 GB resident for the 98% of the month that no
-    # analysis is running; detection runs in a short-lived subprocess instead
-    # (see detect_worker.py). This is the same check load_detector makes first,
-    # so a missing checkpoint still fails at boot rather than mid-analysis.
+    # Presence check only — loading the model here would import torch into the
+    # API process. Detection runs in a subprocess instead (detect_worker.py).
     if not os.path.exists(settings.sar_model_path):
         detail = f"model checkpoint not found at {settings.sar_model_path!r}"
         _set_status("idle", detail)

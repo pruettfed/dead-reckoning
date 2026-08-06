@@ -1,9 +1,4 @@
-"""The classifier that keeps raw exception text off the wire.
-
-`sar_scenes.error` is arbitrary text — CDSE URLs, SQL statements, file paths —
-and `GET /api/scenes` is unauthenticated, so the guarantee under test is that
-nothing unrecognised is ever echoed back to a caller.
-"""
+"""The classifier that keeps raw exception text off the unauthenticated /api/scenes."""
 
 from app.failures import UNKNOWN, classify
 

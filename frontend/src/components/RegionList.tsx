@@ -32,9 +32,7 @@ export default function RegionList({ rois, mode, selected, onSelect, schedule, c
         const row = schedule?.regions.find((x) => x.name === r.name);
         const on = r.name === selected;
         const analyzing = row?.state === "analyzing";
-        // A cold deploy holds every region until the AIS buffer has depth, so
-        // there is no countdown to show — say what is actually happening
-        // rather than promising a pass the scheduler will not take yet.
+        // No countdown to show during warm-up — say what's actually happening.
         const warming = row?.state === "warming_up" || schedule?.scheduler.state === "warming_up";
         const due = row?.next_expected_at && new Date(row.next_expected_at).getTime() > now;
         const stat = analyzing

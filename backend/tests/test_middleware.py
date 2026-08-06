@@ -1,9 +1,4 @@
-"""Rate limiting and security headers.
-
-The API is unauthenticated by design — a same-origin SPA cannot hold a secret —
-so how fast anyone can pull, and what the browser is told the page may do, are
-the controls that actually exist.
-"""
+"""Rate limiting and security headers — the controls on an unauthenticated API."""
 
 from app.middleware import (
     BASE_HEADERS,
@@ -99,11 +94,7 @@ class TestSecurityHeaders:
 
 
 class TestThroughTheRealApp:
-    """The middleware stack as an actual caller meets it.
-
-    /api/rois touches no database, so this exercises the real app without
-    standing one up.
-    """
+    """The middleware stack via /api/rois, which touches no database."""
 
     def client(self):
         from fastapi.testclient import TestClient

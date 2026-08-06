@@ -9,11 +9,7 @@ declare module "leaflet" {
     smoothSensitivity?: number;
   }
 
-  // SmoothWheelZoom hangs off the Map *constructor*, not an instance —
-  // `addInitHook` below looks it up there. The vendored index.d.ts declared it
-  // on the Map interface, which types the instance side and leaves
-  // `L.Map.SmoothWheelZoom` unknown; tsc rejected both uses, so `pnpm build`
-  // (tsc -b && vite build) could not produce a production bundle at all.
+  // Hangs off the Map constructor, not an instance — addInitHook looks it up there.
   namespace Map {
     let SmoothWheelZoom: typeof Handler;
   }

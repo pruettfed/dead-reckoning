@@ -43,24 +43,15 @@ def mark_message(source: str) -> None:
     s.last_message_at = datetime.now(tz=timezone.utc)
 
 
-# user:password inside any URL — asyncpg and SQLAlchemy both echo the DSN in
-# connection errors, and DATABASE_URL is the one secret that arrives already
-# embedded in a string we did not build.
+# asyncpg/SQLAlchemy echo the DSN's user:password on connection errors.
 _URL_CREDENTIALS = re.compile(r"(?<=://)[^/\s@]+:[^/\s@]+(?=@)")
 
 
 def redact(reason: str) -> str:
     """Strip configured secrets out of an error string.
 
-    Error text reaches unauthenticated readers by two routes — `last_error` on
-    /api/health, and `sar_scenes.error` — so it must stay useful without
-    carrying credentials. The AISStream key travels inside the WebSocket
-    subscribe payload and the database password inside the DSN; any exception
-    echoing either would publish it. Scrub at this one choke point rather than
-    suppressing the fields.
-
-    Ordered longest-first so a secret that contains another (or a shared
-    prefix) cannot leave a fragment of itself behind.
+    Reached by /api/health's last_error and sar_scenes.error, both public.
+    Longest-first so one secret containing another leaves no fragment.
     """
     settings = get_settings()
     secrets = sorted(
@@ -82,14 +73,11 @@ def redact(reason: str) -> str:
     for secret in secrets:
         if secret in reason:
             reason = reason.replace(secret, "***")
-    # The full DSN is redacted above, but asyncpg also reports host/port/user
-    # separately and SQLAlchemy rewrites the URL it echoes, so neither
-    # necessarily matches settings.database_url verbatim.
+    # Also catch a rewritten URL that no longer matches settings.database_url verbatim.
     return _URL_CREDENTIALS.sub("***:***", reason)
 
 
-# Kept as the private name the rest of the module already used.
-_redact = redact
+_redact = redact  # private alias the rest of the module already used
 
 
 def mark_disconnected(source: str, reason: str | None = None) -> None:
@@ -116,12 +104,7 @@ def snapshot(
 
     `stale_after` overrides the configured threshold (tests pass this explicitly).
     `_now` overrides the wall clock (also for tests).
-
-    `include_last_error` defaults to "not in production". The field is scrubbed
-    by `redact`, but scrubbing is a list of known secrets and the strings are
-    arbitrary exception text — CDSE request URLs, SQL fragments, file paths.
-    No client renders it, so production publishes the state without it and
-    keeps the detail in the logs, where it belongs.
+    `include_last_error` defaults to "not in production" — nothing renders it there.
     """
     settings = get_settings()
     if stale_after is None:
@@ -142,10 +125,7 @@ def snapshot(
             "lag_seconds": round(lag, 1) if lag is not None else None,
             "connected_since": s.connected_since.isoformat() if s.connected_since else None,
             "reconnect_count": s.reconnect_count,
-            # A count is a health signal; the text is a debugging aid. Keeping
-            # the count in production means the UI can still show that
-            # something is wrong without publishing what.
-            "error_count": s.error_count,
+            "error_count": s.error_count,  # kept in prod even when last_error is withheld
         }
         if include_last_error:
             out[name]["last_error"] = redact(s.last_error) if s.last_error else None

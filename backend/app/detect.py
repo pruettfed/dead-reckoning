@@ -4,11 +4,8 @@ Chips exceed the model's input size, so detection runs on overlapping tiles;
 duplicate hits along tile seams are merged with global NMS. All torch work is
 synchronous.
 
-This module stays importable without torch: `from ultralytics import YOLO` lives
-inside `YoloDetector.__init__`, so the API process can hold `DetectorSpec`,
-`iter_tiles` and the merge logic without paying for the model. The API path runs
-inference out-of-process via `detect_worker`; `run_detection` here is the
-in-process path the CLI tools use.
+Importable without torch (`YOLO` is imported inside `YoloDetector.__init__`);
+the API runs inference out-of-process via `detect_worker` instead.
 
 Weights come from the ml/ fine-tune runbook (`MODEL_PATH`, default
 models/sar_ship.pt). Missing weights or ML deps raise `DetectorUnavailable`
@@ -74,12 +71,7 @@ class Detector(Protocol):
 
 @dataclass(frozen=True)
 class DetectorSpec:
-    """How to build a detector, without building one.
-
-    The API process passes this around instead of a live `Detector` so that
-    torch is never imported into it — see `detect_worker.py`. Small, immutable
-    and picklable, so it crosses a process boundary for free.
-    """
+    """How to build a detector, without building one — picklable, crosses to detect_worker."""
 
     model_path: str
     conf_threshold: float
@@ -192,9 +184,7 @@ def load_detector(model_path: str, conf_threshold: float) -> Detector:
 def detect_tiles(pixels: np.ndarray, detector: Detector) -> list[PixelDetection]:
     """Tile the image and detect, in whole-chip pixel coords. Blocking.
 
-    Split out from `run_detection` because this is the only half that needs
-    torch: it is what runs in the detection subprocess, while merging and
-    geolocation stay in the caller (pure numpy and arithmetic).
+    Split out from `run_detection` — this is the half that needs torch.
     """
     height, width = pixels.shape[:2]
     raw: list[PixelDetection] = []
@@ -215,11 +205,5 @@ def geolocate(chip: SarChip, raw: list[PixelDetection]) -> list[GeoDetection]:
 
 
 def run_detection(chip: SarChip, detector: Detector) -> list[GeoDetection]:
-    """Tile the chip, detect, NMS-merge, and map centroids to lon/lat. Blocking.
-
-    In-process, so importing torch here is unavoidable — this is the path the
-    CLI tools take (`scripts/analyze.py`, `ml/bench_detector.py`), where a
-    resident model is exactly what you want. The API process uses
-    `detect_worker.run_detection_isolated` instead.
-    """
+    """Tile, detect, merge and geolocate. Blocking, in-process — used by the CLI tools."""
     return geolocate(chip, detect_tiles(chip.pixels, detector))

@@ -1,17 +1,10 @@
 """Security headers and rate limiting for a public, unauthenticated API.
 
-Every read endpoint here is open by design: the client is a static SPA served
-from the same origin, and a browser cannot hold a secret, so an API key baked
-into the bundle would be decoration rather than a control. What is available
-instead is limiting how fast anyone can pull, and telling the browser what the
-page is allowed to do.
+No API key: a public SPA can't hold a secret, so what's available instead is
+limiting request rate and telling the browser what the page may do.
 
-Rate limiting is a token bucket held in this process. That is the correct scope
-rather than a compromise: the scheduler, the AIS ingest and the retention sweep
-are all lifespan tasks, so the app runs as a single uvicorn worker by
-construction — a second worker would duplicate the AISStream subscription and
-race the PU ledger. With one worker, in-process state is the whole state, and a
-shared store would add a dependency for nothing.
+Rate limiting is in-process (a single uvicorn worker by construction — see
+main.py), so a shared store would add a dependency for nothing.
 """
 
 from __future__ import annotations
@@ -26,21 +19,16 @@ from starlette.responses import JSONResponse, Response
 
 logger = logging.getLogger(__name__)
 
-# Ordinary API reads. The UI polls health every 30 s and the schedule every
-# 60 s, and a page load fans out to roughly a dozen calls, so a burst well
-# above that is still comfortably interactive for a real visitor.
+# Comfortably above a normal page load's ~dozen calls plus health/schedule polling.
 DEFAULT_RATE = 60      # requests
 DEFAULT_WINDOW = 60.0  # seconds
 
-# Scene overviews are PNG blobs streamed straight out of Postgres, so they cost
-# far more per request than a JSON read. Leaflet fetches one per visible scene,
-# hence a real allowance rather than a token one.
+# Scene overviews are PNG blobs out of Postgres — costlier than a JSON read.
 OVERVIEW_PATH_MARKER = "/overview.png"
 OVERVIEW_RATE = 20
 OVERVIEW_WINDOW = 60.0
 
-# Stop the bucket table from being a memory leak under a spray of source
-# addresses. Buckets idle longer than this are dropped on the next sweep.
+# Idle buckets are dropped on sweep so the table can't grow unbounded.
 BUCKET_TTL = 300.0
 SWEEP_EVERY = 60.0
 
@@ -66,9 +54,7 @@ class TokenBuckets:
         if bucket is None:
             self._buckets[key] = _Bucket(tokens=self.rate - 1, updated=now)
             return True
-        # Continuous refill rather than a fixed window: a fixed window lets a
-        # caller spend a full allowance on either side of the boundary and get
-        # double the rate across it.
+        # Continuous refill, not a fixed window — avoids 2x rate across a boundary.
         refill = (now - bucket.updated) * (self.rate / self.window)
         bucket.tokens = min(float(self.rate), bucket.tokens + refill)
         bucket.updated = now
@@ -87,12 +73,7 @@ class TokenBuckets:
 
 
 def client_key(request: Request) -> str:
-    """Who to charge a request to.
-
-    uvicorn runs with --proxy-headers behind the platform's load balancer, so
-    request.client.host is already the real caller. Reading X-Forwarded-For
-    here as well would let anyone reset their own bucket by sending the header.
-    """
+    """Who to charge a request to. --proxy-headers makes request.client.host real."""
     return request.client.host if request.client else "unknown"
 
 
@@ -104,8 +85,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        # Static assets are content-hashed and cached by the browser; limiting
-        # them would throttle the page rather than the API.
+        # Static assets are cached by the browser; only /api/ is metered.
         if not path.startswith("/api/"):
             return await call_next(request)
         buckets = self._overview if path.endswith(OVERVIEW_PATH_MARKER) else self._general
@@ -120,9 +100,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-# Leaflet needs the CARTO basemap and its own inline styles; nothing else
-# reaches off-origin. 'unsafe-inline' for styles is Leaflet positioning tiles
-# via style attributes — there is no build-time nonce that survives that.
+# Leaflet needs the CARTO basemap and inline styles (tile positioning); nothing else off-origin.
 CSP = "; ".join(
     [
         "default-src 'self'",
@@ -142,8 +120,7 @@ BASE_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Permissions-Policy": "geolocation=(), camera=(), microphone=(), interest-cohort=()",
     "Content-Security-Policy": CSP,
-    # frame-ancestors already covers this for modern browsers; kept for old ones.
-    "X-Frame-Options": "DENY",
+    "X-Frame-Options": "DENY",  # frame-ancestors covers modern browsers; this covers old ones.
 }
 
 
@@ -152,12 +129,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._headers = dict(BASE_HEADERS)
         if production:
-            # Only in production: sending HSTS from a local http:// dev server
-            # would pin the browser to https for localhost across every project
-            # on the machine.
-            self._headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains"
-            )
+            # HSTS would pin http://localhost to https across every project on the machine.
+            self._headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)

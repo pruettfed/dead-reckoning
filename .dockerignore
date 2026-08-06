@@ -1,5 +1,4 @@
-# Build context is the repository root (the image builds the SPA and the API
-# together), so this governs what reaches the daemon for both stages.
+# Build context is the repository root (SPA + API build here together).
 
 # Python
 __pycache__/
@@ -8,14 +7,13 @@ __pycache__/
 venv/
 .pytest_cache/
 
-# Node — reinstalled inside the frontend stage from the lockfile; copying a host
-# node_modules in would also carry the host platform's native binaries.
+# Node — reinstalled in the frontend stage from the lockfile.
 node_modules/
 dist/
 *.tsbuildinfo
 .vite/
 
-# Secrets. .env.example is the contract and stays.
+# Secrets
 .env
 **/.env
 
@@ -34,5 +32,4 @@ ml/
 README.md
 CLAUDE.md
 backend/tests/
-# backend/scripts/ deliberately stays: production exposes no PU-spending
-# endpoint, so scripts/analyze.py over a shell is the only way to force a run.
+# backend/scripts/ stays — scripts/analyze.py is the only way to force a run in prod.

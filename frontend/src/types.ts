@@ -69,10 +69,7 @@ export type Scene = {
   platform: string;
   status: "processing" | "processed" | "failed";
   processed_at: string | null;
-  // Classified server-side. The raw exception string is never served: it is
-  // arbitrary text on an unauthenticated endpoint. Null unless status is
-  // "failed".
-  failure_reason: string | null;
+  failure_reason: string | null; // classified server-side; null unless status is "failed"
   footprint: Footprint;
   imaged_bbox: Bbox | null; // the rectangle pixels were fetched for
   has_overview: boolean;
@@ -139,13 +136,8 @@ export type ScheduleState =
   | "unknown"
   | "warming_up";
 
-// Why the scheduler is or is not analyzing. `regions` alone cannot say: it is
-// empty both before the first sweep and when the scheduler never started.
-//   starting    — process is up, the task has not reached its first check
-//   disabled    — SCHEDULER_ENABLED=false
-//   idle        — terminal: no CDSE credentials, or no model checkpoint
-//   warming_up  — waiting for the AIS buffer to reach SCHEDULER_WARMUP_HOURS
-//   running     — sweeping
+// Why the scheduler is or is not analyzing — `regions` alone can't say (empty
+// both pre-first-sweep and never-started).
 export type SchedulerState =
   | "starting"
   | "disabled"

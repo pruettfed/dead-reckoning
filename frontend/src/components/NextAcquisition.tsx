@@ -25,10 +25,7 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-// A pass estimate is a claim about the satellite, not about this deployment.
-// When the scheduler is holding or stopped, the countdown alone is a lie by
-// omission — a fresh deploy would show a confident clock next to a pipeline
-// that has not started and will not start for hours.
+// A pass estimate is about the satellite, not this deployment — say so when the scheduler isn't running.
 function schedulerNote(s: SchedulerStatus | undefined): string | null {
   if (!s) return null;
   if (s.state === "warming_up") return `Holding for AIS coverage — ${s.detail}`;

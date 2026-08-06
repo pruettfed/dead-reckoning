@@ -19,9 +19,7 @@ class Settings(BaseSettings):
     env: Literal["development", "staging", "production"] = Field(
         default="production", alias="ENV"
     )
-    # Host header allow-list. Empty disables the check — a wildcard default
-    # would look like protection while doing nothing, so this is opt-in and
-    # production warns when it is unset.
+    # Host header allow-list. Empty disables the check — opt-in, not a wildcard default.
     allowed_hosts: Annotated[list[str], NoDecode] = Field(
         default_factory=list, alias="ALLOWED_HOSTS"
     )
@@ -53,16 +51,10 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
     scheduler_interval_seconds: float = Field(default=900.0, alias="SCHEDULER_INTERVAL_SECONDS")
     pu_monthly_ceiling: float = Field(default=25_000.0, alias="PU_MONTHLY_CEILING")
-    # AIS buffer depth required before the *first* sweep. A fresh database has
-    # no AIS, and a survey ROI has no AIS gate of its own (fusion is skipped),
-    # so without this the first sweep after a cold deploy buys pixels for six
-    # survey regions while every fused region is still refusing for lack of a
-    # reference. Measured against min(ais_positions.time), so a redeploy onto a
-    # populated database satisfies it on the first check and never waits.
+    # AIS buffer depth required before the first sweep — survey ROIs have no AIS
+    # gate of their own, so a cold deploy would otherwise buy pixels immediately.
     scheduler_warmup_hours: float = Field(default=6.0, alias="SCHEDULER_WARMUP_HOURS")
-    # Ceiling on that wait. Without a cap, a deployment with no AISSTREAM_API_KEY
-    # would block the scheduler forever — ingest returns immediately and the
-    # buffer stays empty — and survey regions need no AIS to be correct.
+    # Cap on that wait, for deployments with no AISSTREAM_API_KEY at all.
     scheduler_warmup_max_hours: float = Field(default=8.0, alias="SCHEDULER_WARMUP_MAX_HOURS")
 
     # Fusion by dead reckoning — measured defaults
@@ -83,14 +75,7 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def _require_async_driver(cls, value: str) -> str:
-        """Force the asyncpg driver onto the DSN.
-
-        Hosting platforms hand out a plain `postgresql://` URL, but the engine
-        here is async and needs `postgresql+asyncpg://`. Left alone, the app
-        boots and then fails on the first query with a message about a missing
-        greenlet, which points nowhere near the actual cause. Normalizing here
-        means the platform's variable can be referenced verbatim.
-        """
+        """Force the asyncpg driver onto the DSN — hosting platforms hand out plain postgresql://."""
         if isinstance(value, str) and value.startswith("postgres"):
             scheme, sep, rest = value.partition("://")
             if sep and "+" not in scheme:
@@ -129,15 +114,8 @@ class Settings(BaseSettings):
         A misconfigured prod deploy must not start and quietly serve a
         destructive surface; failing here is the loudest signal available.
         """
-        # A weak key is a weak key in any environment: staging is reachable
-        # from the internet too, and the key that is short in dev is the one
-        # that gets copied forward. Unset stays fine — check_admin_key answers
-        # that with a 503.
-        #
-        # DEVTOOLS_API_KEY is deliberately *not* checked here. A short or
-        # missing one silently turns the dev router off via devtools_available,
-        # because scripts/dev_reset.py talks to the database directly and needs
-        # no key at all — a fresh clone has to boot without one.
+        # Checked in every environment, not just prod — staging is reachable too.
+        # DEVTOOLS_API_KEY is exempt: a short/missing one just disables the dev router.
         if self.analysis_api_key and len(self.analysis_api_key) < MIN_KEY_LENGTH:
             raise ValueError(
                 f"ANALYSIS_API_KEY must be at least {MIN_KEY_LENGTH} characters"

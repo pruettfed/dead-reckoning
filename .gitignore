@@ -15,10 +15,7 @@ dist/
 *.nc
 data/
 
-# ML weights. Training checkpoints stay out, but the one the backend actually
-# loads ships in the image: without it the scheduler reports idle and the SAR
-# half of the app silently does nothing. A fine-tuned YOLOv8 detector is a few
-# tens of MB, well under GitHub's 100 MB limit.
+# ML weights — except the one the backend loads, which ships in the image.
 *.pt
 !backend/models/*.pt
 
