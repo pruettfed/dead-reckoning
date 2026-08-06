@@ -55,11 +55,14 @@ async def _wait_for_database() -> None:
         except Exception as exc:
             if attempt == DB_CONNECT_ATTEMPTS:
                 raise
+            # Some connect failures (TimeoutError in particular) stringify to
+            # nothing — the exception type is the only diagnostic signal then.
             logger.warning(
-                "database not ready (attempt %d/%d): %s",
+                "database not ready (attempt %d/%d): %s: %s",
                 attempt,
                 DB_CONNECT_ATTEMPTS,
-                sources.redact(str(exc)),
+                type(exc).__name__,
+                sources.redact(str(exc)) or "(no message)",
             )
             await asyncio.sleep(DB_CONNECT_BACKOFF)
 
