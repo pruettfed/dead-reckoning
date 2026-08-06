@@ -80,6 +80,23 @@ class Settings(BaseSettings):
     # anchored vessels. Retuning is free — see landmask.py.
     land_mask_buffer_m: float = Field(default=0.0, alias="LAND_MASK_BUFFER_M")
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _require_async_driver(cls, value: str) -> str:
+        """Force the asyncpg driver onto the DSN.
+
+        Hosting platforms hand out a plain `postgresql://` URL, but the engine
+        here is async and needs `postgresql+asyncpg://`. Left alone, the app
+        boots and then fails on the first query with a message about a missing
+        greenlet, which points nowhere near the actual cause. Normalizing here
+        means the platform's variable can be referenced verbatim.
+        """
+        if isinstance(value, str) and value.startswith("postgres"):
+            scheme, sep, rest = value.partition("://")
+            if sep and "+" not in scheme:
+                return f"postgresql+asyncpg://{rest}"
+        return value
+
     @field_validator("cors_origins", "allowed_hosts", mode="before")
     @classmethod
     def _split_origins(cls, value: str | list[str]) -> list[str]:

@@ -6,7 +6,10 @@ services:
       POSTGRES_PASSWORD: dvd
       POSTGRES_DB: dvd
     ports:
-      - "5432:5432"
+      # Bound to loopback: this is a dev convenience for psql, and the password
+      # is the literal "dvd". Publishing it on 0.0.0.0 exposes the database to
+      # anything that can reach the host.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,7 +19,10 @@ services:
       retries: 10
 
   backend:
-    build: ./backend
+    build:
+      # Root context: the image builds the SPA too, so it needs frontend/.
+      context: .
+      dockerfile: backend/Dockerfile
     env_file:
       - path: ./backend/.env
         required: false
@@ -26,6 +32,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://dvd:dvd@db:5432/dvd
       CORS_ORIGINS: http://localhost:5173
       ENV: development
+      # Local dev wants the scheduler working immediately, not six hours from
+      # now. Production leaves this at its default so a cold deploy does not
+      # analyze against an empty AIS buffer — see scheduler.warmup_ready.
+      SCHEDULER_WARMUP_HOURS: 0
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend/app:/app/app

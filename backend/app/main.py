@@ -25,6 +25,7 @@ from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 from app.rois import ROI, ROIS, get_roi
 from app.scheduler import run_scheduler
 from app.security import check_admin_key
+from app.spa import mount_spa
 
 settings = get_settings()
 logging.basicConfig(
@@ -40,9 +41,42 @@ REAP_INTERRUPTED = text(
 )
 
 
+# Compose orders startup with `depends_on: service_healthy`; a hosting platform
+# has no equivalent, so a cold deploy routinely brings the app up before
+# Postgres accepts connections. Without this the container crash-loops through
+# its restart budget on what is a few seconds of ordinary startup skew.
+DB_CONNECT_ATTEMPTS = 10
+DB_CONNECT_BACKOFF = 3.0
+
+
+async def _wait_for_database() -> None:
+    for attempt in range(1, DB_CONNECT_ATTEMPTS + 1):
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            return
+        except Exception as exc:
+            if attempt == DB_CONNECT_ATTEMPTS:
+                raise
+            logger.warning(
+                "database not ready (attempt %d/%d): %s",
+                attempt,
+                DB_CONNECT_ATTEMPTS,
+                sources.redact(str(exc)),
+            )
+            await asyncio.sleep(DB_CONNECT_BACKOFF)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    await _wait_for_database()
     async with engine.begin() as conn:
+        # PostGIS is not optional here — four tables carry Geography columns and
+        # the fusion and land-mask queries are ST_* throughout. The postgis
+        # Docker image installs it at initdb, but a managed Postgres will not,
+        # and create_all would then fail on the first Geography column with an
+        # unknown-type error rather than saying what is missing.
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
         await conn.run_sync(Base.metadata.create_all)
         await landmask.apply_schema(conn)
         await fusion.apply_schema(conn)
@@ -655,3 +689,7 @@ async def analysis_schedule(
         "month_to_date_pu": await pipeline.month_to_date_pu(session),
         "pu_monthly_ceiling": settings.pu_monthly_ceiling,
     }
+
+
+# Last, so every API route is matched before the SPA catch-all sees a request.
+mount_spa(app)

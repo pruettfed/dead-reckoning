@@ -15,7 +15,7 @@ Maritime OSINT platform that fuses Sentinel-1 SAR imagery with public AIS data t
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy (async), GeoAlchemy2, PostGIS 3.4 / PostgreSQL 16, ultralytics YOLOv8 (CPU inference)
 - **Frontend:** Vite 5, React 18, TypeScript, react-leaflet, TanStack Query
-- **Infra:** Docker Compose (local), Railway (backend), Vercel (frontend)
+- **Infra:** Docker Compose (local), Railway (production — API and SPA on one origin, PostGIS alongside)
 
 ## Prerequisites
 
@@ -101,6 +101,74 @@ The same operations are exposed over HTTP at `/api/dev/*` for a remote non-produ
 
 **Deleting scenes re-spends PU** — the scheduler treats the pass as new and re-fetches it. Set `SCHEDULER_ENABLED=false` first if you don't want that.
 
+## Deploying
+
+Production runs as **two Railway services**: `web` (this image) and `db`
+(`postgis/postgis:16-3.4` with a volume at `/var/lib/postgresql/data`). Railway's
+stock Postgres has no PostGIS, which is not optional here — four tables carry
+`Geography` columns and fusion is `ST_*` throughout.
+
+The image builds the SPA and serves it from the API process, so there is **one
+origin and one public hostname**. That is the security posture, not a
+convenience: the browser never makes a cross-origin request, so CORS stops being
+load-bearing, and the API has no address of its own for anyone to find. A public
+SPA cannot hold a secret, so there is deliberately no API token — what protects
+the surface instead is rate limiting, security headers, response models that
+whitelist every field, and the fact that production registers no PU-spending or
+destructive route at all.
+
+**Before the first deploy**
+
+1. Put the detector checkpoint at `backend/models/sar_ship.pt` and commit it.
+   `.gitignore` allows that one path. Without it the scheduler reports
+   `idle: model checkpoint not found`, the API and AIS ingest work fine, and the
+   entire SAR half of the app silently does nothing.
+2. Point `dark-vessel.pruettfed.com` at the `web` service. Railway issues a CNAME
+   and a TXT record to add at the registrar and provisions TLS itself.
+
+**Environment variables on the `web` service**
+
+```
+ENV=production
+DATABASE_URL=${{Postgres.DATABASE_URL}}     # Railway reference; the scheme is normalized
+CORS_ORIGINS=https://dark-vessel.pruettfed.com
+ALLOWED_HOSTS=dark-vessel.pruettfed.com
+AISSTREAM_API_KEY=...
+CDSE_CLIENT_ID=...
+CDSE_CLIENT_SECRET=...
+LOG_LEVEL=INFO
+```
+
+Do **not** copy `.env.example` verbatim — it sets `DEVTOOLS_ENABLED=true`, and
+`ENV=production` refuses to boot with that. The refusal is the feature; a
+production process must not quietly serve a destructive surface.
+
+**What happens on first boot**
+
+The lifespan waits for Postgres (a platform has no `depends_on`, so the app
+routinely starts first), creates the PostGIS extension, creates the tables, and
+loads the bundled coastline. The scheduler then **holds every region** until the
+AIS buffer reaches `SCHEDULER_WARMUP_HOURS` of depth — six hours by default,
+capped at eight. Expect the region rail to read "AIS warm-up" for that window on
+a genuinely fresh database; a redeploy onto an existing one starts immediately.
+
+**Forcing an analysis in production**
+
+Production exposes no PU-spending endpoint at all — `POST /api/analysis/{roi}`
+404s there even with a valid key. Forcing a run is a shell action:
+
+```bash
+railway run python scripts/analyze.py north_taiwan
+```
+
+**Cost**
+
+The registry runs ~152 analyses/month, about 13 hours of work — a 1.7% duty
+cycle. Detection runs in a subprocess that exits when it is done, so torch is
+resident for that 1.7% rather than all month; on usage-metered hosting that is
+the difference between roughly $17/mo and roughly $8.50/mo. Keep it that way:
+loading the model in the API process undoes it. See `app/detect_worker.py`.
+
 ## Commands
 
 **Compose**
@@ -117,7 +185,7 @@ The same operations are exposed over HTTP at `/api/dev/*` for a remote non-produ
 
 **Frontend**
 - `pnpm dev` — Vite dev server (:5173), proxies `/api` → backend
-- `pnpm build` — production build to `dist/`
+- `pnpm build` — production build to `dist/` (the Docker image runs this and serves the result)
 - `pnpm preview` — preview the production build locally
 
 ## Environment variables

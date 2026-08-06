@@ -1,0 +1,38 @@
+# Build context is the repository root (the image builds the SPA and the API
+# together), so this governs what reaches the daemon for both stages.
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node — reinstalled inside the frontend stage from the lockfile; copying a host
+# node_modules in would also carry the host platform's native binaries.
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+
+# Secrets. .env.example is the contract and stays.
+.env
+**/.env
+
+# Satellite data and imagery
+*.tif
+*.geotiff
+*.nc
+data/
+
+# Repo furniture with no place in an image
+.git/
+.github/
+.claude/
+docs/
+ml/
+README.md
+CLAUDE.md
+backend/tests/
+# backend/scripts/ deliberately stays: production exposes no PU-spending
+# endpoint, so scripts/analyze.py over a shell is the only way to force a run.
