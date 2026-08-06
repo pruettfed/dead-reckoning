@@ -5,7 +5,8 @@ export type SourceHealth = {
   connected_since: string | null;
   reconnect_count: number;
   error_count: number;
-  last_error: string | null;
+  // Absent in production — see sources.snapshot.
+  last_error?: string | null;
 };
 
 export type Health = { status: string; sources: Record<string, SourceHealth> };
@@ -68,7 +69,10 @@ export type Scene = {
   platform: string;
   status: "processing" | "processed" | "failed";
   processed_at: string | null;
-  error: string | null;
+  // Classified server-side. The raw exception string is never served: it is
+  // arbitrary text on an unauthenticated endpoint. Null unless status is
+  // "failed".
+  failure_reason: string | null;
   footprint: Footprint;
   imaged_bbox: Bbox | null; // the rectangle pixels were fetched for
   has_overview: boolean;

@@ -8,18 +8,20 @@ from datetime import datetime, timezone
 from email.utils import format_datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
-from app import devtools, fusion, landmask, pipeline, scheduler, sources
+from app import devtools, failures, fusion, landmask, pipeline, schemas, scheduler, sources
 from app.config import Settings, get_settings
 from app.database import Base, SessionLocal, engine, get_session
 from app.detect import DetectorSpec
 from app.flags import flag_for_mmsi
 from app.ingest import run_ingest, run_retention
+from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 from app.rois import ROI, ROIS, get_roi
 from app.scheduler import run_scheduler
 from app.security import check_admin_key
@@ -95,16 +97,43 @@ app.add_middleware(
     allow_methods=["GET", "OPTIONS"] if settings.is_production else ["*"],
     allow_headers=["Content-Type"] if settings.is_production else ["*"],
 )
+# Starlette makes the *last* registered middleware the outermost, so this block
+# reads inside-out: CORS is innermost, then the rate limiter, then host pinning,
+# with security headers wrapping everything.
+#
+# The order matters. A rate-limited caller is turned away before any handler or
+# database session is touched, but its 429 is still a response a browser
+# renders, so the header layer has to sit outside the limiter — with these two
+# the other way round the 429 went out bare.
+app.add_middleware(RateLimitMiddleware)
+if settings.allowed_hosts:
+    # Host-header pinning. Only meaningful with an explicit list, so it is opt-in
+    # rather than defaulted to a wildcard that would silently do nothing.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
+app.add_middleware(SecurityHeadersMiddleware, production=settings.is_production)
 
 devtools.register_devtools(app, settings)
 
 
-@app.get("/api/health")
-async def health() -> dict:
-    return {"status": "ok", "sources": sources.snapshot()}
+@app.get("/api/health", response_model=schemas.Health)
+async def health(session: Annotated[AsyncSession, Depends(get_session)]) -> dict:
+    # Readiness, not just liveness: this is the platform's health check, and a
+    # process that is up but cannot reach Postgres serves nothing but errors.
+    # Reporting "ok" unconditionally meant a bad DATABASE_URL looked healthy.
+    try:
+        await session.execute(text("SELECT 1"))
+        database = "ok"
+    except Exception:
+        logger.exception("health check: database unreachable")
+        database = "error"
+    return {
+        "status": "ok" if database == "ok" else "degraded",
+        "database": database,
+        "sources": sources.snapshot(),
+    }
 
 
-@app.get("/api/rois")
+@app.get("/api/rois", response_model=list[schemas.Roi])
 async def list_rois() -> list[dict]:
     return [
         {
@@ -133,7 +162,11 @@ VESSEL_COUNT_QUERY = text(
 )
 
 
-@app.get("/api/vessels/count", summary="Count vessels with a position update in the given ROI within VESSEL_ACTIVE_MINUTES")
+@app.get(
+    "/api/vessels/count",
+    response_model=schemas.VesselCount,
+    summary="Count vessels with a position update in the given ROI within VESSEL_ACTIVE_MINUTES",
+)
 async def vessel_count(
     session: Annotated[AsyncSession, Depends(get_session)],
     roi: str = Query(default="north_taiwan"),
@@ -188,7 +221,7 @@ VESSELS_QUERY = text(
 )
 
 
-@app.get("/api/vessels")
+@app.get("/api/vessels", response_model=list[schemas.Vessel])
 async def list_vessels(
     session: Annotated[AsyncSession, Depends(get_session)],
     at: datetime | None = Query(default=None, description="ISO-8601; defaults to now (UTC)"),
@@ -238,14 +271,21 @@ TRACK_QUERY = text(
 )
 
 
-@app.get("/api/vessels/{mmsi}/track")
+# Retention prunes AIS positions at AIS_RETENTION_DAYS, so asking for a longer
+# window can only ever return the same rows. Resolved at import because Query
+# bounds are static.
+MAX_TRACK_HOURS = 24 * settings.ais_retention_days
+
+
+@app.get("/api/vessels/{mmsi}/track", response_model=list[schemas.TrackPoint])
 async def vessel_track(
     mmsi: int,
     session: Annotated[AsyncSession, Depends(get_session)],
-    hours: int = Query(default=12, ge=1),
+    # Bounded by validation rather than clamped afterwards: the old `ge=1` with
+    # a silent min() accepted any value and quietly narrowed it, which reads as
+    # if arbitrary windows were legal.
+    hours: int = Query(default=12, ge=1, le=MAX_TRACK_HOURS),
 ) -> list[dict]:
-    max_hours = 24 * settings.ais_retention_days
-    hours = min(hours, max_hours)
     rows = (
         await session.execute(TRACK_QUERY, {"mmsi": mmsi, "hours": hours})
     ).mappings().all()
@@ -295,6 +335,7 @@ def _sighting(row: Mapping[str, Any]) -> dict:
 
 @app.get(
     "/api/vessels/{mmsi}/sightings",
+    response_model=list[schemas.Sighting],
     summary="Every SAR detection this MMSI matched or was a candidate for, newest first (free)",
 )
 async def vessel_sightings(
@@ -309,9 +350,26 @@ async def vessel_sightings(
 
 
 async def require_analysis_key(
+    request: Request,
     x_analysis_key: Annotated[str | None, Header()] = None,
 ) -> None:
-    check_admin_key(x_analysis_key, settings.analysis_api_key)
+    """Re-check the environment per request, then the key.
+
+    register_ops already refuses to mount this router in production, but that
+    decision is made once at import against a module global. Reading
+    app.state.settings here means the gate is re-evaluated on every call and
+    stays decidable in a test that swaps settings — the same two-lock shape
+    devtools uses. 404, not 403, so the endpoint's existence is not confirmed.
+    """
+    request_settings: Settings = request.app.state.settings
+    if request_settings.is_production:
+        raise HTTPException(status_code=404, detail="Not Found")
+    try:
+        check_admin_key(x_analysis_key, request_settings.analysis_api_key)
+    except HTTPException:
+        client = request.client.host if request.client else "unknown"
+        logger.warning("analysis auth rejected from %s for %s", client, request.url.path)
+        raise
 
 
 def _resolve_roi(roi: str) -> ROI:
@@ -400,7 +458,7 @@ SCENES_QUERY = text(
 )
 
 
-@app.get("/api/scenes")
+@app.get("/api/scenes", response_model=list[schemas.Scene])
 async def list_scenes(
     session: Annotated[AsyncSession, Depends(get_session)],
     roi: str = Query(default="north_taiwan"),
@@ -410,7 +468,17 @@ async def list_scenes(
     rows = (
         await session.execute(SCENES_QUERY, {"roi": roi_obj.name, "limit": limit})
     ).mappings().all()
-    return [dict(r) | {"footprint": json.loads(r["footprint"])} for r in rows]
+    return [
+        # `error` never crosses the network. It is arbitrary exception text on
+        # an unauthenticated endpoint; `failure_reason` is the closed set of
+        # phrases the UI actually displays. See app/failures.py.
+        {k: v for k, v in r.items() if k != "error"}
+        | {
+            "footprint": json.loads(r["footprint"]),
+            "failure_reason": failures.classify(r["error"]),
+        }
+        for r in rows
+    ]
 
 
 DETECTIONS_QUERY = text(
@@ -435,7 +503,7 @@ DETECTIONS_QUERY = text(
 )
 
 
-@app.get("/api/scenes/{scene_id}/detections")
+@app.get("/api/scenes/{scene_id}/detections", response_model=list[schemas.Detection])
 async def scene_detections(
     scene_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -505,7 +573,11 @@ async def scene_overview(
     return Response(content=overview_png, media_type="image/png", headers=headers)
 
 
-@app.get("/api/analysis/next-pass", summary="Latest and expected Sentinel-1 pass times for an ROI (free)")
+@app.get(
+    "/api/analysis/next-pass",
+    response_model=schemas.NextPass,
+    summary="Latest and expected Sentinel-1 pass times for an ROI (free)",
+)
 async def analysis_next_pass(
     session: Annotated[AsyncSession, Depends(get_session)],
     roi: str = Query(default="north_taiwan"),
@@ -549,6 +621,7 @@ MOST_RECENT_ANALYSIS = text(
 
 @app.get(
     "/api/analysis/schedule",
+    response_model=schemas.Schedule,
     summary="Upcoming automatic analyses across every region, and PU spent this month (free)",
 )
 async def analysis_schedule(

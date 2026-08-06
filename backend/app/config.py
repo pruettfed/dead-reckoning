@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     env: Literal["development", "staging", "production"] = Field(
         default="production", alias="ENV"
     )
+    # Host header allow-list. Empty disables the check — a wildcard default
+    # would look like protection while doing nothing, so this is opt-in and
+    # production warns when it is unset.
+    allowed_hosts: Annotated[list[str], NoDecode] = Field(
+        default_factory=list, alias="ALLOWED_HOSTS"
+    )
 
     # AIS
     aisstream_api_key: str | None = Field(default=None, alias="AISSTREAM_API_KEY")
@@ -74,7 +80,7 @@ class Settings(BaseSettings):
     # anchored vessels. Retuning is free — see landmask.py.
     land_mask_buffer_m: float = Field(default=0.0, alias="LAND_MASK_BUFFER_M")
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("cors_origins", "allowed_hosts", mode="before")
     @classmethod
     def _split_origins(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
@@ -106,6 +112,19 @@ class Settings(BaseSettings):
         A misconfigured prod deploy must not start and quietly serve a
         destructive surface; failing here is the loudest signal available.
         """
+        # A weak key is a weak key in any environment: staging is reachable
+        # from the internet too, and the key that is short in dev is the one
+        # that gets copied forward. Unset stays fine — check_admin_key answers
+        # that with a 503.
+        #
+        # DEVTOOLS_API_KEY is deliberately *not* checked here. A short or
+        # missing one silently turns the dev router off via devtools_available,
+        # because scripts/dev_reset.py talks to the database directly and needs
+        # no key at all — a fresh clone has to boot without one.
+        if self.analysis_api_key and len(self.analysis_api_key) < MIN_KEY_LENGTH:
+            raise ValueError(
+                f"ANALYSIS_API_KEY must be at least {MIN_KEY_LENGTH} characters"
+            )
         if not self.is_production:
             return self
         if self.devtools_enabled:
@@ -115,13 +134,6 @@ class Settings(BaseSettings):
             )
         if any(origin == "*" for origin in self.cors_origins):
             raise ValueError("CORS_ORIGINS may not contain '*' when ENV=production")
-        # An empty key is "not configured", which check_admin_key already
-        # answers with a 503. Only a set-but-weak key is a boot error.
-        if self.analysis_api_key and len(self.analysis_api_key) < MIN_KEY_LENGTH:
-            raise ValueError(
-                f"ANALYSIS_API_KEY must be at least {MIN_KEY_LENGTH} characters "
-                "when ENV=production"
-            )
         return self
 
 

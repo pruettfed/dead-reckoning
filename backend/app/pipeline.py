@@ -443,7 +443,11 @@ async def _run_analysis(roi: ROI, scene: SarScene, spec: DetectorSpec) -> None:
         async with SessionLocal() as session:
             await session.execute(
                 text("UPDATE sar_scenes SET status = 'failed', error = :error WHERE id = :id"),
-                {"id": scene.id, "error": str(exc)[:500]},
+                # Redacted before it is stored, not just before it is served:
+                # this column is read by psql and the ops scripts too, and a
+                # DSN or CDSE secret sitting in the database is a leak waiting
+                # for the next thing that selects it.
+                {"id": scene.id, "error": sources.redact(str(exc))[:500]},
             )
             await session.commit()
 
