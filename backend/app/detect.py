@@ -2,7 +2,10 @@
 
 Chips exceed the model's input size, so detection runs on overlapping tiles;
 duplicate hits along tile seams are merged with global NMS. All torch work is
-synchronous — the pipeline runs `run_detection` in a thread.
+synchronous.
+
+Importable without torch (`YOLO` is imported inside `YoloDetector.__init__`);
+the API runs inference out-of-process via `detect_worker` instead.
 
 Weights come from the ml/ fine-tune runbook (`MODEL_PATH`, default
 models/sar_ship.pt). Missing weights or ML deps raise `DetectorUnavailable`
@@ -64,6 +67,14 @@ class DetectorUnavailable(RuntimeError):
 
 class Detector(Protocol):
     def detect_tile(self, tile: np.ndarray) -> list[PixelDetection]: ...
+
+
+@dataclass(frozen=True)
+class DetectorSpec:
+    """How to build a detector, without building one — picklable, crosses to detect_worker."""
+
+    model_path: str
+    conf_threshold: float
 
 
 def iter_tiles(
@@ -170,16 +181,29 @@ def load_detector(model_path: str, conf_threshold: float) -> Detector:
         )
 
 
-def run_detection(chip: SarChip, detector: Detector) -> list[GeoDetection]:
-    """Tile the chip, detect, NMS-merge, and map centroids to lon/lat. Blocking."""
+def detect_tiles(pixels: np.ndarray, detector: Detector) -> list[PixelDetection]:
+    """Tile the image and detect, in whole-chip pixel coords. Blocking.
+
+    Split out from `run_detection` — this is the half that needs torch.
+    """
+    height, width = pixels.shape[:2]
     raw: list[PixelDetection] = []
-    for x_off, y_off in iter_tiles(chip.width, chip.height):
-        tile = chip.pixels[y_off:y_off + TILE_SIZE, x_off:x_off + TILE_SIZE]
+    for x_off, y_off in iter_tiles(width, height):
+        tile = pixels[y_off:y_off + TILE_SIZE, x_off:x_off + TILE_SIZE]
         for x1, y1, x2, y2, conf in detector.detect_tile(tile):
             raw.append((x1 + x_off, y1 + y_off, x2 + x_off, y2 + y_off, conf))
+    return raw
 
+
+def geolocate(chip: SarChip, raw: list[PixelDetection]) -> list[GeoDetection]:
+    """NMS-merge chip-space detections and map their centroids to lon/lat."""
     geo: list[GeoDetection] = []
     for x1, y1, x2, y2, conf in merge_detections(raw):
         lon, lat = pixel_to_lonlat((x1 + x2) / 2, (y1 + y2) / 2, chip.bbox, chip.width, chip.height)
         geo.append(GeoDetection(lon=lon, lat=lat, confidence=conf, bucket=bucket_confidence(conf)))
     return geo
+
+
+def run_detection(chip: SarChip, detector: Detector) -> list[GeoDetection]:
+    """Tile, detect, merge and geolocate. Blocking, in-process — used by the CLI tools."""
+    return geolocate(chip, detect_tiles(chip.pixels, detector))

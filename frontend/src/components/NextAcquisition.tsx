@@ -4,9 +4,9 @@ import { apiGet } from "../api";
 import { formatCountdown } from "../countdown";
 import { C, MONO } from "../theme";
 import { Brackets, SectionHeader } from "./ui";
-import type { NextPass } from "../types";
+import type { NextPass, SchedulerStatus } from "../types";
 
-type Props = { roi: string; roiLabel: string; accent: string; now: number };
+type Props = { roi: string; roiLabel: string; accent: string; now: number; scheduler?: SchedulerStatus };
 
 function utcStamp(iso: string | null): string {
   if (!iso) return "—";
@@ -25,7 +25,16 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default function NextAcquisition({ roi, roiLabel, accent, now }: Props) {
+// A pass estimate is about the satellite, not this deployment — say so when the scheduler isn't running.
+function schedulerNote(s: SchedulerStatus | undefined): string | null {
+  if (!s) return null;
+  if (s.state === "warming_up") return `Holding for AIS coverage — ${s.detail}`;
+  if (s.state === "idle") return `Analysis not running — ${s.detail}`;
+  if (s.state === "disabled") return "Automatic analysis is switched off";
+  return null;
+}
+
+export default function NextAcquisition({ roi, roiLabel, accent, now, scheduler }: Props) {
   const q = useQuery({
     queryKey: ["next-pass", roi],
     queryFn: () => apiGet<NextPass>("/analysis/next-pass", { roi }),
@@ -33,6 +42,7 @@ export default function NextAcquisition({ roi, roiLabel, accent, now }: Props) {
   });
 
   const expected = q.data?.next_expected_at ?? null;
+  const note = schedulerNote(scheduler);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -52,6 +62,11 @@ export default function NextAcquisition({ roi, roiLabel, accent, now }: Props) {
               : "too few recent passes over this region to estimate the next one"}
           </div>
         </div>
+        {note && (
+          <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.amber, lineHeight: 1.6, letterSpacing: ".02em" }}>
+            {note}
+          </div>
+        )}
         <div style={{ height: 1, background: C.line }} />
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           <Row label="LATEST PASS" value={utcStamp(q.data?.latest_scene_sensed_at ?? null)} />

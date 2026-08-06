@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -26,7 +27,7 @@ from sqlalchemy import text
 from app import pipeline
 from app.config import get_settings
 from app.database import SessionLocal
-from app.detect import Detector, DetectorUnavailable, load_detector
+from app.detect import DetectorSpec
 from app.ingest import sleep_or_stop
 from app.rois import ROI, ROIS
 from app.sar import SarScene, estimate_pu, plan_fetch_grid, search_scenes
@@ -37,7 +38,25 @@ logger = logging.getLogger(__name__)
 # fourteen back-to-back queries every interval is needlessly rude.
 ROI_STAGGER_SECONDS = 2.0
 
+# How often the warm-up gate re-checks the AIS buffer.
+WARMUP_POLL_SECONDS = 60.0
+
+# Global rather than per ROI: whether ingest has run long enough at all,
+# which is what gates the survey regions (they have no per-ROI AIS check).
+MIN_AIS_TIME = text("SELECT min(time) FROM ais_positions")
+
 _schedule: dict[str, dict] = {}
+
+# Surfaced on /api/analysis/schedule so a dead scheduler is visible, not just logged.
+_status: dict = {"state": "starting", "detail": "scheduler has not started yet"}
+
+
+def status() -> dict:
+    return dict(_status)
+
+
+def _set_status(state: str, detail: str) -> None:
+    _status.update(state=state, detail=detail)
 
 
 @dataclass(frozen=True)
@@ -84,12 +103,49 @@ def decide(
     return Decision(True, "new pass" if status is None else "retrying a failure that cost nothing")
 
 
+def warmup_ready(
+    min_ais_time: datetime | None,
+    *,
+    started_at: datetime,
+    now: datetime,
+    required_hours: float,
+    max_wait_hours: float,
+) -> tuple[bool, str]:
+    """Whether the scheduler may take its first sweep, and why.
+
+    Measured from the oldest AIS fix rather than process start, so a redeploy
+    onto a populated database is ready immediately. The cap releases regions
+    even with no AIS at all, since AISSTREAM_API_KEY may be unset.
+    """
+    if min_ais_time is not None:
+        depth_h = (now - min_ais_time).total_seconds() / 3600
+        if depth_h >= required_hours:
+            return True, f"AIS buffer {depth_h:.1f}h deep"
+    waited_h = (now - started_at).total_seconds() / 3600
+    if waited_h >= max_wait_hours:
+        return True, (
+            f"starting without a full AIS buffer: waited {waited_h:.1f}h, "
+            f"the {max_wait_hours:.0f}h cap"
+        )
+    if min_ais_time is None:
+        return False, f"no AIS recorded yet ({waited_h:.1f}h of {max_wait_hours:.0f}h cap)"
+    depth_h = (now - min_ais_time).total_seconds() / 3600
+    return False, f"AIS buffer {depth_h:.1f}h deep, need {required_hours:.0f}h"
+
+
 def schedule_state(
-    next_expected_at: datetime | None, *, analyzing: bool, now: datetime
+    next_expected_at: datetime | None,
+    *,
+    analyzing: bool,
+    now: datetime,
+    warming_up: bool = False,
 ) -> str:
     """How a region's next analysis should read in the UI."""
     if analyzing:
         return "analyzing"
+    if warming_up:
+        # Don't show a countdown for work the scheduler is deliberately holding.
+        return "warming_up"
     if next_expected_at is None:
         # estimate_next_pass needs three distinct passes to take a median.
         return "unknown"
@@ -138,6 +194,7 @@ def snapshot(last_processed: dict[str, datetime], now: datetime) -> list[dict]:
     Empty until the first sweep finishes — the API reports that rather than
     fanning out fourteen catalog calls on a cold page load.
     """
+    warming_up = _status["state"] == "warming_up"
     rows = [
         row
         | {
@@ -150,6 +207,7 @@ def snapshot(last_processed: dict[str, datetime], now: datetime) -> list[dict]:
                 _parse(row["next_expected_at"]),
                 analyzing=pipeline.is_in_flight(row["name"]),
                 now=now,
+                warming_up=warming_up,
             ),
         }
         for row in _schedule.values()
@@ -163,7 +221,7 @@ def _parse(iso: str | None) -> datetime | None:
     return datetime.fromisoformat(iso) if iso else None
 
 
-async def _sweep_roi(roi: ROI, detector: Detector, ceiling: float) -> None:
+async def _sweep_roi(roi: ROI, spec: DetectorSpec, ceiling: float) -> None:
     """Refresh one region's schedule row and analyze its newest pass if due."""
     now = datetime.now(tz=timezone.utc)
     # One catalog call serves both jobs: the pass-interval estimate wants the
@@ -201,26 +259,62 @@ async def _sweep_roi(roi: ROI, detector: Detector, ceiling: float) -> None:
     # bookkeeping around it — `snapshot` reads `is_in_flight` and the database
     # live, so the region reports "analyzing" and then its new "analyzed" time
     # without this function having to remember to say so.
-    await pipeline.start_analysis(roi, scene, detector)
+    await pipeline.start_analysis(roi, scene, spec)
+
+
+async def _await_warmup(stop: asyncio.Event, settings) -> bool:
+    """Hold the first sweep until AIS has depth. False if shutdown intervened."""
+    started_at = datetime.now(tz=timezone.utc)
+    while not stop.is_set():
+        async with SessionLocal() as session:
+            min_ais_time = (await session.execute(MIN_AIS_TIME)).scalar()
+        ready, detail = warmup_ready(
+            min_ais_time,
+            started_at=started_at,
+            now=datetime.now(tz=timezone.utc),
+            required_hours=settings.scheduler_warmup_hours,
+            max_wait_hours=settings.scheduler_warmup_max_hours,
+        )
+        if ready:
+            logger.info("scheduler warm-up complete: %s", detail)
+            return True
+        _set_status("warming_up", detail)
+        logger.info("scheduler warming up: %s", detail)
+        if await sleep_or_stop(stop, WARMUP_POLL_SECONDS):
+            return False
+    return False
 
 
 async def run_scheduler(stop: asyncio.Event) -> None:
     """Sweep every ROI on an interval, analyzing new passes as they appear."""
     settings = get_settings()
     if not settings.scheduler_enabled:
+        _set_status("disabled", "SCHEDULER_ENABLED=false")
         logger.info("scheduler disabled (SCHEDULER_ENABLED=false)")
         return
     if not (settings.cdse_client_id and settings.cdse_client_secret):
+        _set_status("idle", "CDSE_CLIENT_ID / CDSE_CLIENT_SECRET not configured")
         logger.warning("CDSE_CLIENT_ID / CDSE_CLIENT_SECRET not set — scheduler idle")
         return
-    try:
-        detector = await asyncio.to_thread(
-            load_detector, settings.sar_model_path, settings.detection_conf_threshold
-        )
-    except DetectorUnavailable as exc:
-        logger.warning("scheduler idle: %s", exc)
+    # Presence check only — loading the model here would import torch into the
+    # API process. Detection runs in a subprocess instead (detect_worker.py).
+    if not os.path.exists(settings.sar_model_path):
+        detail = f"model checkpoint not found at {settings.sar_model_path!r}"
+        _set_status("idle", detail)
+        logger.warning("scheduler idle: %s — train one via ml/README.md", detail)
+        return
+    spec = DetectorSpec(
+        model_path=settings.sar_model_path,
+        conf_threshold=settings.detection_conf_threshold,
+    )
+
+    if not await _await_warmup(stop, settings):
         return
 
+    _set_status(
+        "running",
+        f"{len(ROIS)} regions every {settings.scheduler_interval_seconds:.0f}s",
+    )
     logger.info(
         "scheduler running: %d regions every %.0fs, PU ceiling %.0f",
         len(ROIS),
@@ -232,7 +326,7 @@ async def run_scheduler(stop: asyncio.Event) -> None:
             if stop.is_set():
                 return
             try:
-                await _sweep_roi(roi, detector, settings.pu_monthly_ceiling)
+                await _sweep_roi(roi, spec, settings.pu_monthly_ceiling)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

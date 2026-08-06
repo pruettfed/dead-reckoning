@@ -1,6 +1,7 @@
 # Keep track of state of connections for DB, AIS
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -42,24 +43,41 @@ def mark_message(source: str) -> None:
     s.last_message_at = datetime.now(tz=timezone.utc)
 
 
-def _redact(reason: str) -> str:
+# asyncpg/SQLAlchemy echo the DSN's user:password on connection errors.
+_URL_CREDENTIALS = re.compile(r"(?<=://)[^/\s@]+:[^/\s@]+(?=@)")
+
+
+def redact(reason: str) -> str:
     """Strip configured secrets out of an error string.
 
-    `last_error` is served by the unauthenticated /api/health and rendered by
-    the frontend, so it must stay useful — but the AISStream key travels inside
-    the WebSocket subscribe payload, and any exception echoing that frame would
-    publish it. Scrub at this one choke point rather than suppressing the field.
+    Reached by /api/health's last_error and sar_scenes.error, both public.
+    Longest-first so one secret containing another leaves no fragment.
     """
     settings = get_settings()
-    for secret in (
-        settings.aisstream_api_key,
-        settings.cdse_client_secret,
-        settings.analysis_api_key,
-        settings.devtools_api_key,
-    ):
-        if secret and secret in reason:
+    secrets = sorted(
+        (
+            s
+            for s in (
+                settings.aisstream_api_key,
+                settings.cdse_client_secret,
+                settings.cdse_client_id,
+                settings.analysis_api_key,
+                settings.devtools_api_key,
+                settings.database_url,
+            )
+            if s
+        ),
+        key=len,
+        reverse=True,
+    )
+    for secret in secrets:
+        if secret in reason:
             reason = reason.replace(secret, "***")
-    return reason
+    # Also catch a rewritten URL that no longer matches settings.database_url verbatim.
+    return _URL_CREDENTIALS.sub("***:***", reason)
+
+
+_redact = redact  # private alias the rest of the module already used
 
 
 def mark_disconnected(source: str, reason: str | None = None) -> None:
@@ -79,14 +97,20 @@ def mark_error(source: str, reason: str) -> None:
 def snapshot(
     stale_after: float | None = None,
     _now: datetime | None = None,
+    *,
+    include_last_error: bool | None = None,
 ) -> dict[str, dict]:
     """Return a JSON-serializable view of all source states.
 
     `stale_after` overrides the configured threshold (tests pass this explicitly).
     `_now` overrides the wall clock (also for tests).
+    `include_last_error` defaults to "not in production" — nothing renders it there.
     """
+    settings = get_settings()
     if stale_after is None:
-        stale_after = get_settings().source_stale_after_seconds
+        stale_after = settings.source_stale_after_seconds
+    if include_last_error is None:
+        include_last_error = not settings.is_production
     now = _now or datetime.now(tz=timezone.utc)
 
     out: dict[str, dict] = {}
@@ -101,9 +125,10 @@ def snapshot(
             "lag_seconds": round(lag, 1) if lag is not None else None,
             "connected_since": s.connected_since.isoformat() if s.connected_since else None,
             "reconnect_count": s.reconnect_count,
-            "error_count": s.error_count,
-            "last_error": s.last_error,
+            "error_count": s.error_count,  # kept in prod even when last_error is withheld
         }
+        if include_last_error:
+            out[name]["last_error"] = redact(s.last_error) if s.last_error else None
     return out
 
 

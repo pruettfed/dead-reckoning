@@ -1,0 +1,35 @@
+# Build context is the repository root (SPA + API build here together).
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node — reinstalled in the frontend stage from the lockfile.
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+
+# Secrets
+.env
+**/.env
+
+# Satellite data and imagery
+*.tif
+*.geotiff
+*.nc
+data/
+
+# Repo furniture with no place in an image
+.git/
+.github/
+.claude/
+docs/
+ml/
+README.md
+CLAUDE.md
+backend/tests/
+# backend/scripts/ stays — scripts/analyze.py is the only way to force a run in prod.

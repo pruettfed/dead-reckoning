@@ -16,20 +16,6 @@ type Props = {
 
 const VISIBLE = 5;
 
-// Pipeline errors are raw exception strings; this reduces the common ones to a
-// line that fits under the timestamp.
-function failReason(error: string | null): string {
-  const e = (error ?? "").toLowerCase();
-  if (e.includes("real data") || e.includes("coverage")) return "Swath missed the box";
-  if (e.includes("credential") || e.includes("401") || e.includes("403")) return "Imagery access rejected";
-  if (e.includes("timeout") || e.includes("timed out")) return "Imagery fetch timed out";
-  if (e.includes("model checkpoint") || e.includes("dependencies")) return "Detector unavailable";
-  if (e.includes("ais")) return "No AIS reference in window";
-  if (!error) return "Analysis error";
-  const first = error.split("\n")[0].slice(0, 42);
-  return first.charAt(0).toUpperCase() + first.slice(1);
-}
-
 export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, expanded, onToggleExpand, accent, survey }: Props) {
   const shown = expanded ? scenes : scenes.slice(0, VISIBLE);
 
@@ -60,7 +46,7 @@ export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, ex
               </div>
               <div style={{ fontFamily: MONO, fontSize: 8.5, color: failed ? hexA(C.dark, 0.8) : C.label, letterSpacing: ".08em", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>
                 {failed
-                  ? failReason(s.error)
+                  ? s.failure_reason ?? "Analysis error"
                   : processing
                     ? `${s.platform} / IW / VV`
                     : `${s.platform} / IW / VV · ${s.detection_count} contacts`}

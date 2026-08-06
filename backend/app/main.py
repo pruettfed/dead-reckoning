@@ -1,27 +1,31 @@
 import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
-from app import devtools, fusion, landmask, pipeline, scheduler, sources
+from app import devtools, failures, fusion, landmask, pipeline, schemas, scheduler, sources
 from app.config import Settings, get_settings
 from app.database import Base, SessionLocal, engine, get_session
-from app.detect import DetectorUnavailable, load_detector
+from app.detect import DetectorSpec
 from app.flags import flag_for_mmsi
 from app.ingest import run_ingest, run_retention
+from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 from app.rois import ROI, ROIS, get_roi
 from app.scheduler import run_scheduler
 from app.security import check_admin_key
+from app.spa import mount_spa
 
 settings = get_settings()
 logging.basicConfig(
@@ -37,9 +41,35 @@ REAP_INTERRUPTED = text(
 )
 
 
+# A hosting platform has no depends_on, so a cold deploy can start before Postgres does.
+DB_CONNECT_ATTEMPTS = 10
+DB_CONNECT_BACKOFF = 3.0
+
+
+async def _wait_for_database() -> None:
+    for attempt in range(1, DB_CONNECT_ATTEMPTS + 1):
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            return
+        except Exception as exc:
+            if attempt == DB_CONNECT_ATTEMPTS:
+                raise
+            logger.warning(
+                "database not ready (attempt %d/%d): %s",
+                attempt,
+                DB_CONNECT_ATTEMPTS,
+                sources.redact(str(exc)),
+            )
+            await asyncio.sleep(DB_CONNECT_BACKOFF)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    await _wait_for_database()
     async with engine.begin() as conn:
+        # A managed Postgres won't have this pre-installed like the postgis image does.
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
         await conn.run_sync(Base.metadata.create_all)
         await landmask.apply_schema(conn)
         await fusion.apply_schema(conn)
@@ -94,16 +124,33 @@ app.add_middleware(
     allow_methods=["GET", "OPTIONS"] if settings.is_production else ["*"],
     allow_headers=["Content-Type"] if settings.is_production else ["*"],
 )
+# Starlette makes the last-registered middleware outermost, so headers must wrap
+# the rate limiter — otherwise a 429 goes out with no security headers at all.
+app.add_middleware(RateLimitMiddleware)
+if settings.allowed_hosts:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
+app.add_middleware(SecurityHeadersMiddleware, production=settings.is_production)
 
 devtools.register_devtools(app, settings)
 
 
-@app.get("/api/health")
-async def health() -> dict:
-    return {"status": "ok", "sources": sources.snapshot()}
+@app.get("/api/health", response_model=schemas.Health)
+async def health(session: Annotated[AsyncSession, Depends(get_session)]) -> dict:
+    # Readiness, not just liveness — a bad DATABASE_URL used to still report "ok".
+    try:
+        await session.execute(text("SELECT 1"))
+        database = "ok"
+    except Exception:
+        logger.exception("health check: database unreachable")
+        database = "error"
+    return {
+        "status": "ok" if database == "ok" else "degraded",
+        "database": database,
+        "sources": sources.snapshot(),
+    }
 
 
-@app.get("/api/rois")
+@app.get("/api/rois", response_model=list[schemas.Roi])
 async def list_rois() -> list[dict]:
     return [
         {
@@ -132,7 +179,11 @@ VESSEL_COUNT_QUERY = text(
 )
 
 
-@app.get("/api/vessels/count", summary="Count vessels with a position update in the given ROI within VESSEL_ACTIVE_MINUTES")
+@app.get(
+    "/api/vessels/count",
+    response_model=schemas.VesselCount,
+    summary="Count vessels with a position update in the given ROI within VESSEL_ACTIVE_MINUTES",
+)
 async def vessel_count(
     session: Annotated[AsyncSession, Depends(get_session)],
     roi: str = Query(default="north_taiwan"),
@@ -187,7 +238,7 @@ VESSELS_QUERY = text(
 )
 
 
-@app.get("/api/vessels")
+@app.get("/api/vessels", response_model=list[schemas.Vessel])
 async def list_vessels(
     session: Annotated[AsyncSession, Depends(get_session)],
     at: datetime | None = Query(default=None, description="ISO-8601; defaults to now (UTC)"),
@@ -237,14 +288,17 @@ TRACK_QUERY = text(
 )
 
 
-@app.get("/api/vessels/{mmsi}/track")
+# A window longer than retention can only return the same rows.
+MAX_TRACK_HOURS = 24 * settings.ais_retention_days
+
+
+@app.get("/api/vessels/{mmsi}/track", response_model=list[schemas.TrackPoint])
 async def vessel_track(
     mmsi: int,
     session: Annotated[AsyncSession, Depends(get_session)],
-    hours: int = Query(default=12, ge=1),
+    # Bounded by validation, not clamped after — was ge=1 with a silent min().
+    hours: int = Query(default=12, ge=1, le=MAX_TRACK_HOURS),
 ) -> list[dict]:
-    max_hours = 24 * settings.ais_retention_days
-    hours = min(hours, max_hours)
     rows = (
         await session.execute(TRACK_QUERY, {"mmsi": mmsi, "hours": hours})
     ).mappings().all()
@@ -294,6 +348,7 @@ def _sighting(row: Mapping[str, Any]) -> dict:
 
 @app.get(
     "/api/vessels/{mmsi}/sightings",
+    response_model=list[schemas.Sighting],
     summary="Every SAR detection this MMSI matched or was a candidate for, newest first (free)",
 )
 async def vessel_sightings(
@@ -308,9 +363,19 @@ async def vessel_sightings(
 
 
 async def require_analysis_key(
+    request: Request,
     x_analysis_key: Annotated[str | None, Header()] = None,
 ) -> None:
-    check_admin_key(x_analysis_key, settings.analysis_api_key)
+    """Re-check the environment per request, then the key — same two-lock shape as devtools."""
+    request_settings: Settings = request.app.state.settings
+    if request_settings.is_production:
+        raise HTTPException(status_code=404, detail="Not Found")
+    try:
+        check_admin_key(x_analysis_key, request_settings.analysis_api_key)
+    except HTTPException:
+        client = request.client.host if request.client else "unknown"
+        logger.warning("analysis auth rejected from %s for %s", client, request.url.path)
+        raise
 
 
 def _resolve_roi(roi: str) -> ROI:
@@ -340,12 +405,17 @@ async def trigger_analysis(roi: str, response: Response) -> dict:
         raise HTTPException(status_code=409, detail=f"analysis already running for {roi_obj.name!r}")
     if not (settings.cdse_client_id and settings.cdse_client_secret):
         raise HTTPException(status_code=503, detail="CDSE_CLIENT_ID / CDSE_CLIENT_SECRET not configured")
-    try:
-        detector = await asyncio.to_thread(
-            load_detector, settings.sar_model_path, settings.detection_conf_threshold
+    # Presence check only; the model is loaded in the detection subprocess, not
+    # here. Answering 503 before spending anything is the point.
+    if not os.path.exists(settings.sar_model_path):
+        raise HTTPException(
+            status_code=503,
+            detail=f"model checkpoint not found at {settings.sar_model_path!r}",
         )
-    except DetectorUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    spec = DetectorSpec(
+        model_path=settings.sar_model_path,
+        conf_threshold=settings.detection_conf_threshold,
+    )
     try:
         scene, status = await pipeline.find_target_scene(roi_obj)
     except pipeline.NoEligibleScene as exc:
@@ -353,7 +423,7 @@ async def trigger_analysis(roi: str, response: Response) -> dict:
 
     if status == "processed":
         return {"scene_id": scene.id, "status": "processed"}  # cached result, 0 PU
-    pipeline.start_analysis(roi_obj, scene, detector)
+    pipeline.start_analysis(roi_obj, scene, spec)
     response.status_code = 202
     return {"scene_id": scene.id, "status": "processing"}
 
@@ -394,7 +464,7 @@ SCENES_QUERY = text(
 )
 
 
-@app.get("/api/scenes")
+@app.get("/api/scenes", response_model=list[schemas.Scene])
 async def list_scenes(
     session: Annotated[AsyncSession, Depends(get_session)],
     roi: str = Query(default="north_taiwan"),
@@ -404,7 +474,15 @@ async def list_scenes(
     rows = (
         await session.execute(SCENES_QUERY, {"roi": roi_obj.name, "limit": limit})
     ).mappings().all()
-    return [dict(r) | {"footprint": json.loads(r["footprint"])} for r in rows]
+    return [
+        # `error` is arbitrary exception text; `failure_reason` is what ships. See failures.py.
+        {k: v for k, v in r.items() if k != "error"}
+        | {
+            "footprint": json.loads(r["footprint"]),
+            "failure_reason": failures.classify(r["error"]),
+        }
+        for r in rows
+    ]
 
 
 DETECTIONS_QUERY = text(
@@ -429,7 +507,7 @@ DETECTIONS_QUERY = text(
 )
 
 
-@app.get("/api/scenes/{scene_id}/detections")
+@app.get("/api/scenes/{scene_id}/detections", response_model=list[schemas.Detection])
 async def scene_detections(
     scene_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -499,7 +577,11 @@ async def scene_overview(
     return Response(content=overview_png, media_type="image/png", headers=headers)
 
 
-@app.get("/api/analysis/next-pass", summary="Latest and expected Sentinel-1 pass times for an ROI (free)")
+@app.get(
+    "/api/analysis/next-pass",
+    response_model=schemas.NextPass,
+    summary="Latest and expected Sentinel-1 pass times for an ROI (free)",
+)
 async def analysis_next_pass(
     session: Annotated[AsyncSession, Depends(get_session)],
     roi: str = Query(default="north_taiwan"),
@@ -543,6 +625,7 @@ MOST_RECENT_ANALYSIS = text(
 
 @app.get(
     "/api/analysis/schedule",
+    response_model=schemas.Schedule,
     summary="Upcoming automatic analyses across every region, and PU spent this month (free)",
 )
 async def analysis_schedule(
@@ -554,6 +637,8 @@ async def analysis_schedule(
     }
     recent = (await session.execute(MOST_RECENT_ANALYSIS)).mappings().first()
     return {
+        # Distinguishes "empty, never started" from "empty, still warming up".
+        "scheduler": scheduler.status(),
         # Empty until the scheduler's first sweep lands, or whenever it is
         # disabled — the client renders that state rather than guessing.
         "regions": scheduler.snapshot(last_processed, datetime.now(tz=timezone.utc)),
@@ -570,3 +655,7 @@ async def analysis_schedule(
         "month_to_date_pu": await pipeline.month_to_date_pu(session),
         "pu_monthly_ceiling": settings.pu_monthly_ceiling,
     }
+
+
+# Last, so every API route is matched before the SPA catch-all sees a request.
+mount_spa(app)

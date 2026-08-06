@@ -120,12 +120,16 @@ def test_multiple_sources_tracked_independently():
 
 
 class _FakeSettings:
-    """Only the fields _redact reads."""
+    """Only the fields redact reads."""
 
     aisstream_api_key = "super-secret-ais-key"
     cdse_client_secret = "super-secret-cdse"
+    cdse_client_id = "client-id-1234"
     analysis_api_key = None
     devtools_api_key = None
+    database_url = "postgresql+asyncpg://dvd:hunter2@db:5432/dvd"
+    is_production = False
+    source_stale_after_seconds = 60.0
 
 
 @pytest.fixture
@@ -153,3 +157,34 @@ def test_mark_error_redacts_too(_fake_secrets):
 def test_redaction_leaves_ordinary_errors_alone(_fake_secrets):
     sources.mark_disconnected("ais", reason="connection reset by peer")
     assert sources.snapshot(stale_after=60)["ais"]["last_error"] == "connection reset by peer"
+
+
+def test_database_password_is_redacted(_fake_secrets):
+    # asyncpg and SQLAlchemy both echo the DSN on a connection failure, and
+    # every exception raised inside _run_analysis reaches this field.
+    reason = "could not connect to postgresql+asyncpg://dvd:hunter2@db:5432/dvd"
+    assert "hunter2" not in sources.redact(reason)
+
+
+def test_credentials_in_an_unfamiliar_url_are_still_redacted(_fake_secrets):
+    # SQLAlchemy rewrites the URL it reports, so it does not always match
+    # settings.database_url verbatim — the pattern has to carry that case.
+    assert "s3cret" not in sources.redact("failed on postgresql://admin:s3cret@other:5432/x")
+
+
+def test_a_secret_containing_another_leaves_no_fragment(_fake_secrets):
+    # Longest-first ordering: redacting the shorter one first would leave the
+    # remainder of the longer one in the string.
+    assert "super-secret-cdse" not in sources.redact("boom super-secret-cdse-extended")
+
+
+def test_last_error_is_withheld_in_production(monkeypatch):
+    class _Prod(_FakeSettings):
+        is_production = True
+
+    monkeypatch.setattr(sources, "get_settings", lambda: _Prod())
+    sources.mark_error("ais", "some internal detail")
+    snap = sources.snapshot(stale_after=60)["ais"]
+    # The count still says something is wrong; the text stays in the logs.
+    assert "last_error" not in snap
+    assert snap["error_count"] == 1

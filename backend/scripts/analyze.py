@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -35,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import pipeline  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
-from app.detect import DetectorUnavailable, load_detector  # noqa: E402
+from app.detect import DetectorSpec  # noqa: E402
 from app.rois import get_roi  # noqa: E402
 from app.sar import estimate_pu, plan_fetch_grid  # noqa: E402
 
@@ -58,13 +59,19 @@ async def main() -> int:
     if not (settings.cdse_client_id and settings.cdse_client_secret):
         print("error: CDSE_CLIENT_ID / CDSE_CLIENT_SECRET not configured", file=sys.stderr)
         return 2
-    try:
-        detector = await asyncio.to_thread(
-            load_detector, settings.sar_model_path, settings.detection_conf_threshold
+    # Presence check only; detection runs in a subprocess that loads the model
+    # itself (see app/detect_worker.py).
+    if not os.path.exists(settings.sar_model_path):
+        print(
+            f"error: model checkpoint not found at {settings.sar_model_path!r} "
+            "— train one via ml/README.md",
+            file=sys.stderr,
         )
-    except DetectorUnavailable as exc:
-        print(f"error: {exc}", file=sys.stderr)
         return 2
+    spec = DetectorSpec(
+        model_path=settings.sar_model_path,
+        conf_threshold=settings.detection_conf_threshold,
+    )
 
     # Free: catalog search, AIS coverage gate, footprint coverage.
     try:
@@ -95,7 +102,7 @@ async def main() -> int:
         return 1
 
     # Await the task rather than fire-and-forget: the process must outlive the run.
-    await pipeline.start_analysis(roi, scene, detector)
+    await pipeline.start_analysis(roi, scene, spec)
     async with SessionLocal() as session:
         spent = await pipeline.month_to_date_pu(session)
     print(f"done — month to date now {spent:.0f} PU")

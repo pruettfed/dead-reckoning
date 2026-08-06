@@ -5,7 +5,8 @@ export type SourceHealth = {
   connected_since: string | null;
   reconnect_count: number;
   error_count: number;
-  last_error: string | null;
+  // Absent in production — see sources.snapshot.
+  last_error?: string | null;
 };
 
 export type Health = { status: string; sources: Record<string, SourceHealth> };
@@ -68,7 +69,7 @@ export type Scene = {
   platform: string;
   status: "processing" | "processed" | "failed";
   processed_at: string | null;
-  error: string | null;
+  failure_reason: string | null; // classified server-side; null unless status is "failed"
   footprint: Footprint;
   imaged_bbox: Bbox | null; // the rectangle pixels were fetched for
   has_overview: boolean;
@@ -127,11 +128,27 @@ export type NextPass = {
 //                    products hours after acquisition, so the wait is normal
 // scheduled        — pass still ahead
 // unknown          — fewer than three recent passes, so no interval to project
+// warming_up       — scheduler is holding every region until AIS has depth
 export type ScheduleState =
   | "analyzing"
   | "awaiting_publication"
   | "scheduled"
-  | "unknown";
+  | "unknown"
+  | "warming_up";
+
+// Why the scheduler is or is not analyzing — `regions` alone can't say (empty
+// both pre-first-sweep and never-started).
+export type SchedulerState =
+  | "starting"
+  | "disabled"
+  | "idle"
+  | "warming_up"
+  | "running";
+
+export type SchedulerStatus = {
+  state: SchedulerState;
+  detail: string;
+};
 
 export type ScheduleRow = {
   name: string;
@@ -158,6 +175,7 @@ export type MostRecentAnalysis = {
 };
 
 export type Schedule = {
+  scheduler: SchedulerStatus;
   // Empty until the scheduler's first sweep lands, or while it is disabled.
   regions: ScheduleRow[];
   // Null until the first analysis completes.

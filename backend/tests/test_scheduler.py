@@ -4,7 +4,7 @@ import pytest
 
 from app import scheduler
 from app.pipeline import NEXT_PASS_LOOKBACK_DAYS, SEARCH_WINDOW_DAYS
-from app.scheduler import decide, recent_scenes, schedule_state, snapshot
+from app.scheduler import decide, recent_scenes, schedule_state, snapshot, warmup_ready
 from tests.test_pipeline import make_scene
 
 NOW = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
@@ -176,3 +176,86 @@ class TestScheduleState:
 
     def test_analyzing_wins_over_a_missing_estimate(self):
         assert schedule_state(None, analyzing=True, now=NOW) == "analyzing"
+
+    def test_warming_up_overrides_a_pass_estimate(self):
+        # The catalog may well have a pass due, but nothing can be analyzed
+        # until the gate opens — a countdown here would promise work the
+        # scheduler is deliberately holding back.
+        assert (
+            schedule_state(
+                NOW + timedelta(hours=3), analyzing=False, now=NOW, warming_up=True
+            )
+            == "warming_up"
+        )
+
+    def test_an_analysis_already_running_outranks_warming_up(self):
+        assert (
+            schedule_state(None, analyzing=True, now=NOW, warming_up=True) == "analyzing"
+        )
+
+
+REQUIRED_H = 6.0
+MAX_WAIT_H = 8.0
+
+
+def warmup(min_ais_time, *, waited_hours=0.0):
+    return warmup_ready(
+        min_ais_time,
+        started_at=NOW - timedelta(hours=waited_hours),
+        now=NOW,
+        required_hours=REQUIRED_H,
+        max_wait_hours=MAX_WAIT_H,
+    )
+
+
+class TestWarmupReady:
+    def test_deep_buffer_starts_immediately(self):
+        # The ordinary redeploy: the database already holds AIS, so the
+        # scheduler must not sit out another six hours for no reason.
+        ready, detail = warmup(NOW - timedelta(hours=30))
+        assert ready
+        assert "30.0h deep" in detail
+
+    def test_buffer_exactly_at_the_threshold_is_ready(self):
+        assert warmup(NOW - timedelta(hours=REQUIRED_H))[0]
+
+    def test_shallow_buffer_waits(self):
+        ready, detail = warmup(NOW - timedelta(hours=2))
+        assert not ready
+        assert "need 6h" in detail
+
+    def test_empty_buffer_waits(self):
+        # A fresh database on a cold deploy. This is the case that used to buy
+        # pixels for six survey regions on the first sweep.
+        ready, detail = warmup(None)
+        assert not ready
+        assert "no AIS recorded yet" in detail
+
+    def test_empty_buffer_starts_once_the_cap_expires(self):
+        # AISSTREAM_API_KEY unset means min(time) is NULL forever. Survey
+        # regions need no AIS, so the cap has to release them.
+        ready, detail = warmup(None, waited_hours=MAX_WAIT_H)
+        assert ready
+        assert "without a full AIS buffer" in detail
+
+    def test_shallow_buffer_also_starts_at_the_cap(self):
+        assert warmup(NOW - timedelta(hours=1), waited_hours=MAX_WAIT_H + 1)[0]
+
+    def test_depth_is_preferred_to_the_cap_when_both_hold(self):
+        # Both conditions are satisfied; the reported reason should be the
+        # good one, not the resigned one.
+        ready, detail = warmup(NOW - timedelta(hours=30), waited_hours=MAX_WAIT_H + 1)
+        assert ready
+        assert "deep" in detail and "without a full" not in detail
+
+    def test_a_zero_requirement_starts_at_once(self):
+        # How local dev is configured (docker-compose sets 0), so the gate must
+        # be a no-op there even with an empty database.
+        ready, _ = warmup_ready(
+            None,
+            started_at=NOW,
+            now=NOW,
+            required_hours=0.0,
+            max_wait_hours=0.0,
+        )
+        assert ready

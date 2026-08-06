@@ -7,6 +7,7 @@ __pycache__/
 # Node
 node_modules/
 dist/
+*.tsbuildinfo
 
 # Satellite data
 *.tif
@@ -14,8 +15,9 @@ dist/
 *.nc
 data/
 
-# ML weights
+# ML weights — except the one the backend loads, which ships in the image.
 *.pt
+!backend/models/*.pt
 
 # DB
 *.db

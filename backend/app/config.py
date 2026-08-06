@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     env: Literal["development", "staging", "production"] = Field(
         default="production", alias="ENV"
     )
+    # Host header allow-list. Empty disables the check — opt-in, not a wildcard default.
+    allowed_hosts: Annotated[list[str], NoDecode] = Field(
+        default_factory=list, alias="ALLOWED_HOSTS"
+    )
 
     # AIS
     aisstream_api_key: str | None = Field(default=None, alias="AISSTREAM_API_KEY")
@@ -47,6 +51,11 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
     scheduler_interval_seconds: float = Field(default=900.0, alias="SCHEDULER_INTERVAL_SECONDS")
     pu_monthly_ceiling: float = Field(default=25_000.0, alias="PU_MONTHLY_CEILING")
+    # AIS buffer depth required before the first sweep — survey ROIs have no AIS
+    # gate of their own, so a cold deploy would otherwise buy pixels immediately.
+    scheduler_warmup_hours: float = Field(default=6.0, alias="SCHEDULER_WARMUP_HOURS")
+    # Cap on that wait, for deployments with no AISSTREAM_API_KEY at all.
+    scheduler_warmup_max_hours: float = Field(default=8.0, alias="SCHEDULER_WARMUP_MAX_HOURS")
 
     # Fusion by dead reckoning — measured defaults
     ais_fix_max_age_s: float = Field(default=1800.0, alias="AIS_FIX_MAX_AGE_S")
@@ -63,7 +72,17 @@ class Settings(BaseSettings):
     # anchored vessels. Retuning is free — see landmask.py.
     land_mask_buffer_m: float = Field(default=0.0, alias="LAND_MASK_BUFFER_M")
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _require_async_driver(cls, value: str) -> str:
+        """Force the asyncpg driver onto the DSN — hosting platforms hand out plain postgresql://."""
+        if isinstance(value, str) and value.startswith("postgres"):
+            scheme, sep, rest = value.partition("://")
+            if sep and "+" not in scheme:
+                return f"postgresql+asyncpg://{rest}"
+        return value
+
+    @field_validator("cors_origins", "allowed_hosts", mode="before")
     @classmethod
     def _split_origins(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
@@ -95,6 +114,12 @@ class Settings(BaseSettings):
         A misconfigured prod deploy must not start and quietly serve a
         destructive surface; failing here is the loudest signal available.
         """
+        # Checked in every environment, not just prod — staging is reachable too.
+        # DEVTOOLS_API_KEY is exempt: a short/missing one just disables the dev router.
+        if self.analysis_api_key and len(self.analysis_api_key) < MIN_KEY_LENGTH:
+            raise ValueError(
+                f"ANALYSIS_API_KEY must be at least {MIN_KEY_LENGTH} characters"
+            )
         if not self.is_production:
             return self
         if self.devtools_enabled:
@@ -104,13 +129,6 @@ class Settings(BaseSettings):
             )
         if any(origin == "*" for origin in self.cors_origins):
             raise ValueError("CORS_ORIGINS may not contain '*' when ENV=production")
-        # An empty key is "not configured", which check_admin_key already
-        # answers with a 503. Only a set-but-weak key is a boot error.
-        if self.analysis_api_key and len(self.analysis_api_key) < MIN_KEY_LENGTH:
-            raise ValueError(
-                f"ANALYSIS_API_KEY must be at least {MIN_KEY_LENGTH} characters "
-                "when ENV=production"
-            )
         return self
 
 

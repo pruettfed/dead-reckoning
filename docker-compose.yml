@@ -6,7 +6,8 @@ services:
       POSTGRES_PASSWORD: dvd
       POSTGRES_DB: dvd
     ports:
-      - "5432:5432"
+      # Loopback only — the password is the literal "dvd".
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,7 +17,9 @@ services:
       retries: 10
 
   backend:
-    build: ./backend
+    build:
+      context: .  # root, so the SPA build stage can reach frontend/
+      dockerfile: backend/Dockerfile
     env_file:
       - path: ./backend/.env
         required: false
@@ -26,6 +29,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://dvd:dvd@db:5432/dvd
       CORS_ORIGINS: http://localhost:5173
       ENV: development
+      SCHEDULER_WARMUP_HOURS: 0  # skip the AIS warm-up gate locally
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend/app:/app/app

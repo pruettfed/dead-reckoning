@@ -9,8 +9,9 @@ declare module "leaflet" {
     smoothSensitivity?: number;
   }
 
-  interface Map {
-    SmoothWheelZoom: Handler;
+  // Hangs off the Map constructor, not an instance — addInitHook looks it up there.
+  namespace Map {
+    let SmoothWheelZoom: typeof Handler;
   }
 }
 

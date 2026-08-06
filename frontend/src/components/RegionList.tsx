@@ -32,15 +32,23 @@ export default function RegionList({ rois, mode, selected, onSelect, schedule, c
         const row = schedule?.regions.find((x) => x.name === r.name);
         const on = r.name === selected;
         const analyzing = row?.state === "analyzing";
+        // No countdown to show during warm-up — say what's actually happening.
+        const warming = row?.state === "warming_up" || schedule?.scheduler.state === "warming_up";
         const due = row?.next_expected_at && new Date(row.next_expected_at).getTime() > now;
-        const stat = analyzing ? "Analyzing" : due ? formatCountdown(row!.next_expected_at!, now) : "Due";
+        const stat = analyzing
+          ? "Analyzing"
+          : warming
+            ? "AIS warm-up"
+            : due
+              ? formatCountdown(row!.next_expected_at!, now)
+              : "Due";
         return (
           <Card key={r.name} accent={accent} selected={on} onClick={() => onSelect(r.name)}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span style={{ fontSize: 12.5, fontWeight: 500, letterSpacing: ".02em", color: on ? C.textHi : C.textMid, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {r.label}
               </span>
-              <span style={{ flex: "none", fontFamily: MONO, fontSize: 10, color: analyzing ? C.amber : "#68757b" }}>{stat}</span>
+              <span style={{ flex: "none", fontFamily: MONO, fontSize: 10, color: analyzing || warming ? C.amber : "#68757b" }}>{stat}</span>
             </div>
             <div style={{ display: "flex", gap: 14 }}>
               <Field label="PASSES" value={`${r.passes_per_month} / mo`} />
