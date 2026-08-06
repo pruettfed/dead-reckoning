@@ -41,17 +41,29 @@ committed `backend/models/sar_ship.pt` checkpoint.)
 2. **New** → **Empty Service** → name it **`db`**.
 3. In `db`'s settings, set the **Source** to a Docker image:
    `postgis/postgis:16-3.4`.
-4. **Variables** tab on `db` → add:
+4. **Variables** tab on `db` → add these as literal values (there's no
+   upstream service to reference them from — these *are* the source of
+   truth, read by the postgis container on its first startup):
    ```
    POSTGRES_USER=dvd
-   POSTGRES_PASSWORD=<generate a real one — not "dvd", that's the local dev default>
+   POSTGRES_PASSWORD=<generate one — see below>
    POSTGRES_DB=dvd
    ```
-5. **Settings → Volumes** → add a volume, mount path `/var/lib/postgresql/data`.
+   Generate the password locally: `openssl rand -hex 24`. Hex output only
+   (0-9a-f) is deliberate — this password ends up embedded in a
+   `postgresql://user:PASSWORD@host/db` URL below, and hex needs no
+   percent-encoding, unlike a password that might contain `@`, `/`, `:`, or `#`.
+5. Still on `db` → add one more variable, self-referencing the three above
+   (Railway's own Postgres template does this automatically; a bare Docker
+   image doesn't, so it needs to be explicit here):
+   ```
+   DATABASE_URL=postgresql://${{POSTGRES_USER}}:${{POSTGRES_PASSWORD}}@${{RAILWAY_PRIVATE_DOMAIN}}:5432/${{POSTGRES_DB}}
+   ```
+   `RAILWAY_PRIVATE_DOMAIN` is injected automatically into every service (the
+   internal-only `<service>.railway.internal` hostname) — don't set that one.
+6. **Settings → Volumes** → add a volume, mount path `/var/lib/postgresql/data`.
    Without this, every redeploy wipes the database.
-6. Deploy `db`. Once it's up, Railway exposes its internal connection details
-   as reference variables you can pull into `web` (next step) — you don't
-   need to construct the DSN by hand.
+7. Deploy `db`.
 
 ### 1.4 Configure `web`'s environment variables
 
@@ -70,10 +82,10 @@ LOG_LEVEL=INFO
 ```
 
 Notes:
-- `${{db.DATABASE_URL}}` is Railway's variable-reference syntax — click the
-  variable, choose "Add Reference", pick the `db` service. This is a plain
-  `postgresql://` URL; the app normalizes the driver prefix itself
-  (`config.py`), so you don't need to hand-edit it.
+- `${{db.DATABASE_URL}}` references the `DATABASE_URL` variable you set on
+  `db` in step 1.3.5 — click the field, choose "Add Reference", pick `db`.
+  It's a plain `postgresql://` URL; the app normalizes the driver prefix
+  itself (`config.py`), so you don't need to hand-edit it.
 - **Do not set `DEVTOOLS_ENABLED=true`** and don't copy `.env.example`
   verbatim — it defaults that on for local dev, and `ENV=production` will
   refuse to boot with it set. That refusal is intentional; if you see it in
