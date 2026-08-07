@@ -67,6 +67,22 @@ def test_mark_error_increments_count_and_does_not_change_state():
     assert snap["ais"]["error_count"] == 2
 
 
+def test_mark_error_sets_state_when_given_one():
+    sources.mark_connected("sar_sentinel1")
+    sources.mark_error("sar_sentinel1", "401 Unauthorized", state="error")
+    snap = sources.snapshot(stale_after=60)
+    assert snap["sar_sentinel1"]["state"] == "error"
+    assert snap["sar_sentinel1"]["error_count"] == 1
+
+
+def test_mark_error_state_is_not_derived_stale():
+    # "degraded" isn't "connected", so snapshot's stale-derivation must leave it alone.
+    sources.mark_connected("sar_sentinel1")
+    sources.mark_error("sar_sentinel1", "coverage too low", state="degraded")
+    snap = sources.snapshot(stale_after=60)
+    assert snap["sar_sentinel1"]["state"] == "degraded"
+
+
 def test_snapshot_derives_stale_when_connected_and_lag_exceeds_threshold():
     sources.mark_connected("ais")
     sources.mark_message("ais")

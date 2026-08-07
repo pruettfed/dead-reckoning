@@ -19,6 +19,7 @@ from app import sources
 from app.config import get_settings
 from app.database import SessionLocal
 from app.detect import DetectorSpec
+from app.failures import is_unreachable
 from app.detect_worker import run_detection_isolated
 from app.fusion import coverage_ok, fuse_scene, insert_detections
 from app.landmask import mark_land_detections
@@ -439,7 +440,11 @@ async def _run_analysis(roi: ROI, scene: SarScene, spec: DetectorSpec) -> None:
         raise
     except Exception as exc:
         logger.exception("analysis failed for %s scene %s", roi.name, scene.name)
-        sources.mark_error(SOURCE, str(exc))
+        reason = str(exc)
+        # "error" only for a fetch that couldn't reach the imagery API at all;
+        # a downstream failure (coverage, detector, AIS window) after a
+        # successful fetch is "degraded" — the API itself was fine.
+        sources.mark_error(SOURCE, reason, state="error" if is_unreachable(reason) else "degraded")
         async with SessionLocal() as session:
             await session.execute(
                 text("UPDATE sar_scenes SET status = 'failed', error = :error WHERE id = :id"),

@@ -1,6 +1,6 @@
 """The classifier that keeps raw exception text off the unauthenticated /api/scenes."""
 
-from app.failures import UNKNOWN, classify
+from app.failures import UNKNOWN, classify, is_unreachable
 
 
 class TestClassify:
@@ -48,3 +48,23 @@ class TestClassify:
         # "credential" and "ais" can both appear in one message; the more
         # specific diagnosis is the useful one.
         assert classify("credential rejected while fetching AIS") == "Imagery access rejected"
+
+
+class TestIsUnreachable:
+    def test_credential_rejection_is_unreachable(self):
+        assert is_unreachable("401 Unauthorized for url ...") is True
+
+    def test_timeout_is_unreachable(self):
+        assert is_unreachable("TIMED OUT waiting for CDSE") is True
+
+    def test_coverage_failure_is_not_unreachable(self):
+        assert is_unreachable("fetched chip is only 43% real data, need 85%") is False
+
+    def test_detector_failure_is_not_unreachable(self):
+        assert is_unreachable("model checkpoint not found") is False
+
+    def test_unknown_failure_is_not_unreachable(self):
+        assert is_unreachable("some new kind of failure") is False
+
+    def test_no_failure_is_not_unreachable(self):
+        assert is_unreachable(None) is False

@@ -20,6 +20,16 @@ _REASONS: list[tuple[tuple[str, ...], str]] = [
 
 UNKNOWN = "Analysis error"
 
+# Reasons that mean the pipeline could not actually talk to the imagery API,
+# as opposed to a downstream failure (coverage, detector, AIS window) that
+# happened after a successful fetch.
+_UNREACHABLE_REASONS = {"Imagery access rejected", "Imagery fetch timed out"}
+
+
+def is_unreachable(error: str | None) -> bool:
+    """True if `error` means the imagery API itself couldn't be reached."""
+    return classify(error) in _UNREACHABLE_REASONS
+
 
 def classify(error: str | None) -> str | None:
     """A publishable reason for a failed scene, or None if it did not fail.

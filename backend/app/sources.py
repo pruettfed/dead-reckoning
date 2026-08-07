@@ -88,10 +88,17 @@ def mark_disconnected(source: str, reason: str | None = None) -> None:
         s.last_error = _redact(reason)
 
 
-def mark_error(source: str, reason: str) -> None:
+def mark_error(source: str, reason: str, *, state: str | None = None) -> None:
+    """Record a failure. `state`, if given, also overwrites the source's state.
+
+    Left `None` by callers (like the AIS DB-flush retry) whose failure says
+    nothing about connection health. Pipeline failures pass it explicitly.
+    """
     s = _get_or_create(source)
     s.error_count += 1
     s.last_error = _redact(reason)
+    if state is not None:
+        s.state = state
 
 
 def snapshot(

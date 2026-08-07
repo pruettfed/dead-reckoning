@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatAgo, utcStamp } from "../countdown";
+import { aisPill, sarPill } from "../sourceHealth";
 import { C, MONO, hexA } from "../theme";
 import { Tabs } from "./ui";
 import type { Health } from "../types";
@@ -20,8 +21,10 @@ type Props = {
   now: number;
 };
 
-function Pill({ label, value, ok }: { label: string; value?: string; ok: boolean }) {
-  const color = ok ? C.match : C.unres;
+const PILL_COLOR = { ok: C.match, warn: C.unres, bad: C.dark } as const;
+
+function Pill({ label, value, state }: { label: string; value?: string | null; state: "ok" | "warn" | "bad" }) {
+  const color = PILL_COLOR[state];
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 9px", background: hexA(color, 0.12), whiteSpace: "nowrap" }}>
       <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".1em", color }}>{label}</span>
@@ -122,8 +125,8 @@ function SourcesInfo() {
 
 export default function TopBar({ mode, onMode, counts, health, vesselsAgo, drawerOpen, onDrawer, narrow, clock, sceneAt, accent, now }: Props) {
   const sources = health?.sources ?? {};
-  const aisOk = Object.entries(sources).some(([n, s]) => n.includes("ais") && s.state === "connected");
-  const sarOk = health !== undefined && !Object.entries(sources).some(([n, s]) => n.includes("sar") && s.state === "error");
+  const ais = aisPill(sources);
+  const sar = sarPill(sources, health !== undefined);
   const ago = sceneAt ? formatAgo(sceneAt, now) : "";
 
   return (
@@ -176,8 +179,10 @@ export default function TopBar({ mode, onMode, counts, health, vesselsAgo, drawe
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px", borderLeft: `1px solid ${C.line}` }}>
-        <Pill label="Imagery link" ok={sarOk} />
-        {vesselsAgo && <Pill label="AIS Live" value={vesselsAgo} ok={aisOk} />}
+        <Pill label="Imagery link" state={sar} />
+        {vesselsAgo && (
+          <Pill label={ais.label} value={ais.lastMessageAt ? formatAgo(ais.lastMessageAt, now) : undefined} state={ais.state} />
+        )}
         <SourcesInfo />
       </div>
 
