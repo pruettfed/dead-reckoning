@@ -68,7 +68,7 @@ def test_monthly_pu_within_budget():
 
 
 def test_get_roi_returns_known():
-    assert get_roi("north_taiwan").label == "North Taiwan / ECS approaches"
+    assert get_roi("north_taiwan").label == "North Taiwan"
 
 
 def test_get_roi_unknown_raises():

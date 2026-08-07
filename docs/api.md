@@ -58,11 +58,11 @@ ingestion always covers all of them simultaneously (switching ROI is a view filt
 
 ```json
 [
-  { "name": "north_taiwan",     "label": "North Taiwan / ECS approaches",
+  { "name": "north_taiwan",     "label": "North Taiwan",
     "ais_bbox": [120.70, 24.90, 122.40, 26.30], "sar_bbox": [120.90, 24.95, 122.20, 25.60], "mode": "fused" },
-  { "name": "gulf_of_finland",  "label": "Gulf of Finland (shadow-fleet corridor)",
+  { "name": "gulf_of_finland",  "label": "Gulf of Finland",
     "ais_bbox": [24.50, 59.20, 28.60, 60.40], "sar_bbox": [25.20, 59.45, 27.60, 60.28], "mode": "fused" },
-  { "name": "hormuz_strait",    "label": "Strait of Hormuz (TSS)",
+  { "name": "hormuz_strait",    "label": "Strait of Hormuz",
     "ais_bbox": [55.65, 26.00, 56.95, 27.00], "sar_bbox": [55.95, 26.15, 56.85, 26.85], "mode": "survey" }
 ]
 ```

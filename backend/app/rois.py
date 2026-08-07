@@ -29,7 +29,9 @@ class ROI:
     # is what the budget test multiplies by estimate_pu. Re-probe with
     # `scripts/probe_regions.py` (free) after changing any sar_bbox.
     passes_per_month: int
-    # One sentence: why this region is tracked. Exposed via GET /api/rois.
+    # A sentence or two of plain-language context: why this region is
+    # tracked. Written for a general reader, not an analyst — no jargon.
+    # Exposed via GET /api/rois.
     blurb: str
 
 
@@ -70,7 +72,7 @@ ROIS: dict[str, ROI] = {
     # ---- fused: AIS verified live, 2026-07-11/12; boxes retuned 2026-07-26/2026-08-02 ----
     "north_taiwan": ROI(
         name="north_taiwan",
-        label="North Taiwan / ECS approaches",
+        label="North Taiwan",
         ais_bbox=(120.70, 24.90, 122.40, 26.30),
         # Shifted onto the actual Keelung approach corridor: old box sat in
         # near-empty water offshore (175 vessels/2d); this sits on the
@@ -82,15 +84,16 @@ ROIS: dict[str, ROI] = {
         mode="fused",
         passes_per_month=7,
         blurb=(
-            "Gray-zone pressure zone north of Taiwan — the corridor where "
-            "Chinese-linked vessels have been implicated in subsea-cable "
-            "interference off Keelung, with documented AIS spoofing during "
-            "those incidents."
+            "Taiwan makes most of the world's advanced computer chips, and "
+            "nearly all of them leave by sea. China keeps up constant "
+            "military and coast guard pressure around the island, and ships "
+            "here have been caught cutting undersea cables while hiding "
+            "their position."
         ),
     ),
     "gulf_of_finland": ROI(
         name="gulf_of_finland",
-        label="Gulf of Finland (shadow-fleet corridor)",
+        label="Gulf of Finland",
         # Widened north edge to keep ais_bbox strictly containing the
         # enlarged sar_bbox below (2026-08-02).
         ais_bbox=(24.50, 59.20, 28.60, 60.40),
@@ -107,14 +110,14 @@ ROIS: dict[str, ROI] = {
         mode="fused",
         passes_per_month=20,
         blurb=(
-            "The Baltic exit corridor for Russia's shadow fleet — aging, "
-            "opaquely-owned tankers moving sanctioned crude out of Primorsk "
-            "and Ust-Luga, with widespread documented AIS manipulation."
+            "Russia ships sanctioned oil out of its Baltic ports using old "
+            "tankers with hidden owners. Many of them switch off or fake "
+            "their location signal on the way out."
         ),
     ),
     "skagen_kattegat": ROI(
         name="skagen_kattegat",
-        label="Skagen Anchorage (Kattegat)",
+        label="Skagen Anchorage",
         ais_bbox=(9.85, 57.15, 11.95, 58.45),
         # Already well-placed; enlarged since the swath tolerates it at 100%
         # coverage (354 -> 495 vessels/2d).
@@ -122,16 +125,14 @@ ROIS: dict[str, ROI] = {
         mode="fused",
         passes_per_month=20,
         blurb=(
-            "The only sea exit from the Baltic to the North Sea — every "
-            "shadow-fleet tanker loading in the Gulf of Finland must funnel "
-            "through here, which is why Danish authorities have begun "
-            "boarding and inspecting suspect tankers specifically in this "
-            "chokepoint."
+            "The only way out of the Baltic Sea, so every tanker loading in "
+            "the Gulf of Finland has to pass through. Denmark has started "
+            "boarding and inspecting suspicious ones here."
         ),
     ),
     "bosphorus_marmara": ROI(
         name="bosphorus_marmara",
-        label="Bosphorus Approaches (Sea of Marmara)",
+        label="Bosphorus Approaches",
         ais_bbox=(28.20, 40.55, 29.70, 41.15),
         # AIS-cliff fix (2026-07-26, see constraint 3 above): shrunk to
         # 28.85 max_lon, inside the real Istanbul-receiver coverage boundary
@@ -142,15 +143,15 @@ ROIS: dict[str, ROI] = {
         mode="fused",
         passes_per_month=15,
         blurb=(
-            "The sole sea route for Russian Black Sea oil and grain exports "
-            "leaving through Turkey's Straits, and the closest observable "
-            "proxy for Kerch Strait traffic, which itself has no usable AIS "
-            "coverage."
+            "Russian oil and grain from the Black Sea can only reach world "
+            "markets by sailing through Turkey's straits. It is also the "
+            "best place to watch traffic that came from Kerch, which is "
+            "a receiver dark spot."
         ),
     ),
     "malta_hurds_bank": ROI(
         name="malta_hurds_bank",
-        label="Hurd Bank (Malta offshore STS)",
+        label="Hurd Bank, Malta",
         # Widened for viewport headroom only — traffic was already saturated
         # inside the old ais_bbox, and sar_bbox is unchanged: enlarging it
         # drops SAR coverage below 85% (narrow swath track here).
@@ -159,16 +160,15 @@ ROIS: dict[str, ROI] = {
         mode="fused",
         passes_per_month=15,
         blurb=(
-            "A documented ship-to-ship transfer hotspot in the central "
-            "Mediterranean for sanctioned Russian and Iranian crude — Hurd "
-            "Bank sits just outside Maltese territorial waters, beyond "
-            "routine port-state inspection but a short hop from EU "
-            "refineries."
+            "Tankers park here in the middle of the Mediterranean and pump "
+            "sanctioned Russian and Iranian oil into each other. The spot "
+            "sits just outside Maltese waters, so inspectors rarely reach "
+            "it, but European refineries are close by."
         ),
     ),
     "syria_coast_sts": ROI(
         name="syria_coast_sts",
-        label="Syrian Coast (Baniyas / Tartus STS)",
+        label="Syrian Coast",
         # Promoted from survey 2026-08-02: live AIS grew 4 -> 38 vessels in
         # the ais_bbox, but the old sar_bbox (35.50,35.00,35.95,35.45) only
         # reached 8 of those 38 — the rest clustered just south, around
@@ -182,16 +182,15 @@ ROIS: dict[str, ROI] = {
         mode="fused",
         passes_per_month=20,
         blurb=(
-            "Ship-to-ship transfers at the Baniyas terminal and the "
-            "Tartus naval/commercial port just south of it have been a "
-            "documented mechanism for moving sanctioned Syrian and Iranian "
-            "crude since the civil war."
+            "Tankers pass sanctioned Syrian and Iranian oil between ships "
+            "at the Baniyas terminal and the port of Tartus just south of "
+            "it. It has been a way around sanctions since the civil war."
         ),
     ),
     # ---- survey: no terrestrial AIS; vessel presence only, never "dark" ----
     "hormuz_strait": ROI(
         name="hormuz_strait",
-        label="Strait of Hormuz (TSS)",
+        label="Strait of Hormuz",
         # Widened on every side to keep strict containment of the enlarged
         # sar_bbox below (2026-08-02).
         ais_bbox=(55.65, 26.00, 56.95, 27.00),
@@ -209,10 +208,10 @@ ROIS: dict[str, ROI] = {
         mode="survey",
         passes_per_month=10,
         blurb=(
-            "About a fifth of global oil transits this 33km-wide "
-            "chokepoint, and Iran has repeatedly seized or harassed tankers "
-            "here amid sanctions tensions. No terrestrial AIS reaches it, so "
-            "this is presence monitoring, not a dark-vessel claim."
+            "About a fifth of the world's oil squeezes through this 33 km "
+            "gap, and Iran has repeatedly seized or harassed tankers here. "
+            "No shore stations pick up ship signals this far out, so we "
+            "only report the vessels we see."
         ),
     ),
     "musandam_stage": ROI(
@@ -223,8 +222,8 @@ ROIS: dict[str, ROI] = {
         mode="survey",
         passes_per_month=10,
         blurb=(
-            "A staging area for vessels queuing to transit Hormuz, on the "
-            "Omani peninsula that pinches the strait to its narrowest point."
+            "Ships wait here for their turn through Hormuz, off the Omani "
+            "peninsula that pinches the strait to its narrowest point."
         ),
     ),
     "kharg_island": ROI(
@@ -235,26 +234,25 @@ ROIS: dict[str, ROI] = {
         mode="survey",
         passes_per_month=10,
         blurb=(
-            "Iran's primary crude export terminal — nearly all the oil that "
-            "later transits Hormuz loads here first, making this the "
-            "upstream half of the same sanctions-evasion story."
+            "Iran's main oil export terminal. Almost everything that later "
+            "sails through Hormuz is loaded here first."
         ),
     ),
     "eopl_tompok_utara": ROI(
         name="eopl_tompok_utara",
-        label="EOPL / Tompok Utara (STS anchorage)",
-        # Extended west toward Johor and the Singapore Strait receivers.
+        label="Tompok Utara Anchorage",
+        # Extended west toward Johor and the Singapore Strait receivers —
+        # the closest survey region to real AIS coverage, and so the next
+        # candidate for promotion to fused (syria_coast_sts was promoted
+        # first, 2026-08-02).
         ais_bbox=(104.30, 1.10, 105.15, 1.80),
         sar_bbox=(104.65, 1.25, 105.10, 1.70),
         mode="survey",
         passes_per_month=5,
         blurb=(
-            "A known ship-to-ship anchorage off eastern Malaysia for "
-            "sanctioned Iranian and Venezuelan crude, and one of the survey "
-            "regions closest to real AIS coverage — its box reaches toward "
-            "the Singapore Strait receivers, so it's a plausible candidate "
-            "to promote to fused on further evidence (syria_coast_sts was "
-            "promoted first, 2026-08-02)."
+            "Tankers meet off eastern Malaysia to hand off sanctioned "
+            "Iranian and Venezuelan oil, out of sight of the busy Singapore "
+            "Strait a short way west."
         ),
     ),
     "kerch_strait": ROI(
@@ -265,14 +263,13 @@ ROIS: dict[str, ROI] = {
         mode="survey",
         passes_per_month=10,
         blurb=(
-            "The Russian-side loading point for the same Black Sea shadow "
-            "fleet that surfaces again at Bosphorus, the nearest region "
-            "with usable AIS."
+            "Russia loads much of its Black Sea oil fleet here. The same "
+            "ships turn up later at the Bosphorus."
         ),
     ),
     "somali_coast": ROI(
         name="somali_coast",
-        label="NE Somalia Coast",
+        label="Northeast Somalia Coast",
         # Widened north/south to keep strict containment of the enlarged
         # sar_bbox below (2026-08-02).
         ais_bbox=(50.50, 8.40, 51.50, 9.45),
@@ -284,9 +281,9 @@ ROIS: dict[str, ROI] = {
         mode="survey",
         passes_per_month=10,
         blurb=(
-            "A historic piracy corridor off the Horn of Africa, now "
-            "entangled with the broader Red Sea shipping crisis reshaping "
-            "traffic patterns and insurance risk in the region."
+            "A stretch of the Horn of Africa long known for piracy. The "
+            "Red Sea attacks nearby have since pushed shipping routes and "
+            "insurance costs even further off their normal patterns."
         ),
     ),
 }
