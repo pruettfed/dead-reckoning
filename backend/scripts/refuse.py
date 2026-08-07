@@ -27,6 +27,7 @@ from sqlalchemy import text  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from app.fusion import coverage_ok, fuse_scene  # noqa: E402
+from app.pipeline import AIS_SPAN_IN_ROI  # noqa: E402
 from app.rois import get_roi  # noqa: E402
 
 SCENES = text(
@@ -42,15 +43,8 @@ SCENES = text(
     """
 )
 
-MIN_AIS_IN_ROI = text(
-    """
-    SELECT min(time) FROM ais_positions
-    WHERE ST_Within(
-        location::geometry,
-        ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
-    )
-    """
-)
+# Imported rather than copied: this used to be a second verbatim copy, which is
+# exactly the kind of thing that survives a change to the original.
 
 
 async def main() -> int:
@@ -80,19 +74,20 @@ async def main() -> int:
                 continue
 
             min_lon, min_lat, max_lon, max_lat = roi.ais_bbox
-            min_ais = (
+            span = (
                 await session.execute(
-                    MIN_AIS_IN_ROI,
+                    AIS_SPAN_IN_ROI,
                     {"min_lon": min_lon, "min_lat": min_lat,
                      "max_lon": max_lon, "max_lat": max_lat},
                 )
-            ).scalar()
+            ).mappings().one()
+            min_ais, max_ais = span["min_time"], span["max_time"]
             if not coverage_ok(
-                scene["sensed_at"], min_ais, settings.fusion_max_time_delta_hours
+                scene["sensed_at"], min_ais, max_ais, settings.fusion_max_time_delta_hours
             ):
                 print(
-                    f"{label}\n  skipped: AIS buffer no longer reaches this scene "
-                    f"(oldest AIS {min_ais}) — re-fusing would mark everything dark\n"
+                    f"{label}\n  skipped: AIS buffer no longer brackets this scene "
+                    f"(AIS {min_ais} to {max_ais}) — re-fusing would mark everything dark\n"
                 )
                 continue
 

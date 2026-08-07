@@ -48,6 +48,12 @@ class AISPosition(Base):
 
     __table_args__ = (
         Index("ix_ais_positions_mmsi_time", "mmsi", "time"),
+        # Time alone, for the queries that ask *when* rather than *whose*: the
+        # scheduler's AIS-continuity probe and the retention prune. The composite
+        # above cannot serve either, since neither constrains mmsi.
+        # Live databases get this from ingest.apply_schema — create_all adds
+        # tables, never indexes to a table that already exists.
+        Index("ix_ais_positions_time", "time"),
     )
 
 

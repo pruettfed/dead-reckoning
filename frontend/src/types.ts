@@ -128,7 +128,9 @@ export type NextPass = {
 //                    products hours after acquisition, so the wait is normal
 // scheduled        — pass still ahead
 // unknown          — fewer than three recent passes, so no interval to project
-// warming_up       — scheduler is holding every region until AIS has depth
+// warming_up       — the AIS gate is holding *this* region. Per region, not
+//                    fleet-wide: with AIS down the fused half reads warming_up
+//                    while the survey half keeps its countdown.
 export type ScheduleState =
   | "analyzing"
   | "awaiting_publication"

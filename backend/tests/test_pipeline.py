@@ -27,23 +27,35 @@ def make_scene(scene_id: str, sensed_at: datetime) -> SarScene:
 
 
 class TestEligibleScenes:
+    # A live stream: AIS reaches up to now, so the ceiling never excludes a
+    # scene and each test below still measures only what it names.
+    MAX_AIS = NOW
+
     def test_newest_first(self):
         """Order matters: the caller walks these until one covers the bbox."""
         old = make_scene("old", NOW - timedelta(days=2))
         new = make_scene("new", NOW - timedelta(hours=6))
         min_ais = NOW - timedelta(days=3)
-        assert eligible_scenes([old, new], min_ais, window_hours=2) == [new, old]
+        assert eligible_scenes([old, new], min_ais, self.MAX_AIS, window_hours=2) == [new, old]
 
     def test_scene_outside_buffer_excluded(self):
         scene = make_scene("s", NOW - timedelta(days=2))
         min_ais = NOW - timedelta(days=1)
-        assert eligible_scenes([scene], min_ais, window_hours=2) == []
+        assert eligible_scenes([scene], min_ais, self.MAX_AIS, window_hours=2) == []
 
     def test_no_scenes(self):
-        assert eligible_scenes([], NOW - timedelta(days=1), window_hours=2) == []
+        assert eligible_scenes([], NOW - timedelta(days=1), self.MAX_AIS, window_hours=2) == []
 
     def test_no_ais_data_excludes_everything(self):
-        assert eligible_scenes([make_scene("a", NOW)], None, window_hours=2) == []
+        assert eligible_scenes([make_scene("a", NOW)], None, None, window_hours=2) == []
+
+    def test_scene_past_a_stale_buffer_excluded(self):
+        # Ingest died six hours ago; the scene is newer than anything AIS can
+        # bracket, so fusing it would call every vessel dark.
+        scene = make_scene("s", NOW - timedelta(hours=1))
+        min_ais = NOW - timedelta(days=2)
+        max_ais = NOW - timedelta(hours=6)
+        assert eligible_scenes([scene], min_ais, max_ais, window_hours=2) == []
 
 
 class TestFootprintWktsInWindow:

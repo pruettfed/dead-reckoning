@@ -14,7 +14,17 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models  # noqa: F401  (registers models on Base.metadata)
-from app import devtools, failures, fusion, landmask, pipeline, schemas, scheduler, sources
+from app import (
+    devtools,
+    failures,
+    fusion,
+    ingest,
+    landmask,
+    pipeline,
+    schemas,
+    scheduler,
+    sources,
+)
 from app.config import Settings, get_settings
 from app.database import Base, SessionLocal, engine, get_session
 from app.detect import DetectorSpec
@@ -75,6 +85,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await conn.run_sync(Base.metadata.create_all)
         await landmask.apply_schema(conn)
         await fusion.apply_schema(conn)
+        await ingest.apply_schema(conn)
         loaded = await landmask.load_bundled_polygons(conn)
         # In-flight analyses live only in `pipeline._in_flight`, so any restart
         # orphans their rows. Nothing is retrying them; say so.

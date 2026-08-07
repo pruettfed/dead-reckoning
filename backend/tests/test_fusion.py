@@ -7,29 +7,54 @@ from app.fusion import MatchCandidate, assign_one_to_one, classify, coverage_ok
 
 SENSED_AT = datetime(2026, 7, 10, 2, 30, tzinfo=timezone.utc)
 
+# Far enough past the scene that the ceiling is satisfied, so each floor test
+# below still measures only the floor.
+FRESH_MAX = SENSED_AT + timedelta(hours=10)
+
 
 def test_no_ais_data_means_no_coverage():
-    assert coverage_ok(SENSED_AT, None, window_hours=2) is False
+    assert coverage_ok(SENSED_AT, None, None, window_hours=2) is False
 
 
 def test_buffer_reaching_past_window_is_covered():
     min_ais = SENSED_AT - timedelta(hours=10)
-    assert coverage_ok(SENSED_AT, min_ais, window_hours=2) is True
+    assert coverage_ok(SENSED_AT, min_ais, FRESH_MAX, window_hours=2) is True
 
 
 def test_buffer_starting_inside_window_is_not_covered():
     min_ais = SENSED_AT - timedelta(hours=1)
-    assert coverage_ok(SENSED_AT, min_ais, window_hours=2) is False
+    assert coverage_ok(SENSED_AT, min_ais, FRESH_MAX, window_hours=2) is False
 
 
 def test_exact_window_boundary_is_covered():
     min_ais = SENSED_AT - timedelta(hours=2)
-    assert coverage_ok(SENSED_AT, min_ais, window_hours=2) is True
+    assert coverage_ok(SENSED_AT, min_ais, FRESH_MAX, window_hours=2) is True
 
 
 def test_scene_older_than_buffer_is_not_covered():
     min_ais = SENSED_AT + timedelta(hours=5)  # buffer starts after the scene
-    assert coverage_ok(SENSED_AT, min_ais, window_hours=2) is False
+    assert coverage_ok(SENSED_AT, min_ais, FRESH_MAX, window_hours=2) is False
+
+
+def test_a_buffer_that_stopped_before_the_scene_is_not_covered():
+    # The stale-AIS hole: ingest died, but rows from days earlier survive the
+    # retention prune, so the floor alone still passes. Fusion would then match
+    # nothing, measure 0% chance-match on empty water, read as discriminating,
+    # and call every vessel dark.
+    min_ais = SENSED_AT - timedelta(days=2)
+    max_ais = SENSED_AT - timedelta(hours=6)
+    assert coverage_ok(SENSED_AT, min_ais, max_ais, window_hours=2) is False
+
+
+def test_no_max_ais_time_means_no_coverage():
+    min_ais = SENSED_AT - timedelta(hours=10)
+    assert coverage_ok(SENSED_AT, min_ais, None, window_hours=2) is False
+
+
+def test_exact_ceiling_boundary_is_covered():
+    min_ais = SENSED_AT - timedelta(hours=10)
+    max_ais = SENSED_AT + timedelta(hours=2)
+    assert coverage_ok(SENSED_AT, min_ais, max_ais, window_hours=2) is True
 
 
 def candidate(det_id, mmsi, distance_m, time_delta_s=0.0):

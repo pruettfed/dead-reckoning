@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # AIS
     aisstream_api_key: str | None = Field(default=None, alias="AISSTREAM_API_KEY")
-    ais_retention_days: int = Field(default=2, alias="AIS_RETENTION_DAYS")
+    ais_retention_days: int = Field(default=5, alias="AIS_RETENTION_DAYS")
     vessel_active_minutes: int = Field(default=240, alias="VESSEL_ACTIVE_MINUTES")
     source_stale_after_seconds: float = Field(default=60.0, alias="SOURCE_STALE_AFTER_SECONDS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -56,11 +56,20 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
     scheduler_interval_seconds: float = Field(default=900.0, alias="SCHEDULER_INTERVAL_SECONDS")
     pu_monthly_ceiling: float = Field(default=25_000.0, alias="PU_MONTHLY_CEILING")
-    # AIS buffer depth required before the first sweep — survey ROIs have no AIS
-    # gate of their own, so a cold deploy would otherwise buy pixels immediately.
+    # Continuous AIS required before a fused ROI may be swept — survey ROIs have
+    # no AIS gate of their own, so a cold deploy would otherwise buy pixels
+    # immediately. Set to 0 to disable the gate entirely (compose does, for dev).
     scheduler_warmup_hours: float = Field(default=6.0, alias="SCHEDULER_WARMUP_HOURS")
     # Cap on that wait, for deployments with no AISSTREAM_API_KEY at all.
+    # Survey ROIs only: a fused ROI is never released without AIS, since fusion
+    # against an empty buffer calls every vessel dark.
     scheduler_warmup_max_hours: float = Field(default=8.0, alias="SCHEDULER_WARMUP_MAX_HOURS")
+    # Silence that counts as a break in the AIS stream, and the bucket width the
+    # continuity probe uses. Median AIS cadence is 168s across all twelve ROIs
+    # combined, so half an hour of total silence is unambiguous, not a lull.
+    scheduler_ais_gap_minutes: float = Field(
+        default=60.0, ge=1.0, alias="SCHEDULER_AIS_GAP_MINUTES"
+    )
 
     # Fusion by dead reckoning — measured defaults
     ais_fix_max_age_s: float = Field(default=1800.0, alias="AIS_FIX_MAX_AGE_S")

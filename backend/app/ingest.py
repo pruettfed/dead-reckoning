@@ -220,6 +220,26 @@ def _to_orm(pos: ParsedPosition) -> AISPosition:
     )
 
 
+# `create_all` adds a missing table, but never an index to a table that already
+# exists — and there is no Alembic here. Both users of this index filter on time
+# without constraining mmsi, so `ix_ais_positions_mmsi_time` cannot serve them:
+# the scheduler's continuity probe and the retention prune below.
+#
+# Built plainly, not CONCURRENTLY: lifespan runs inside a transaction, where
+# CONCURRENTLY is illegal. It takes a brief write lock, which is harmless here
+# (ingest starts after this block) and bounded by AIS_RETENTION_DAYS. A failed
+# CONCURRENTLY build would also leave an INVALID index that IF NOT EXISTS then
+# skips forever, silently — this fails loudly instead.
+ADD_TIME_INDEX = text(
+    "CREATE INDEX IF NOT EXISTS ix_ais_positions_time ON ais_positions (time)"
+)
+
+
+async def apply_schema(conn) -> None:
+    """Add the time index to an existing ais_positions. Safe to run repeatedly."""
+    await conn.execute(ADD_TIME_INDEX)
+
+
 async def sleep_or_stop(stop: asyncio.Event, seconds: float) -> bool:
     """Sleep up to `seconds`, returning True if `stop` fired during the wait."""
     try:

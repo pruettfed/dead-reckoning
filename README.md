@@ -147,10 +147,22 @@ production process must not quietly serve a destructive surface.
 
 The lifespan waits for Postgres (a platform has no `depends_on`, so the app
 routinely starts first), creates the PostGIS extension, creates the tables, and
-loads the bundled coastline. The scheduler then **holds every region** until the
-AIS buffer reaches `SCHEDULER_WARMUP_HOURS` of depth — six hours by default,
-capped at eight. Expect the region rail to read "AIS warm-up" for that window on
-a genuinely fresh database; a redeploy onto an existing one starts immediately.
+loads the bundled coastline. The scheduler then holds regions until AIS is
+healthy, and it holds the two halves of the fleet on different terms:
+
+- **Fused regions** wait for `SCHEDULER_WARMUP_HOURS` (6) of *continuous* AIS,
+  with no gap longer than `SCHEDULER_AIS_GAP_MINUTES` (30). There is no cap on
+  this wait — fusing against a stale buffer calls every vessel dark, so a fused
+  region with no AIS stays held for as long as that lasts.
+- **Survey regions** wait the same six hours but are released after
+  `SCHEDULER_WARMUP_MAX_HOURS` (8) regardless. They skip fusion, so they are
+  correct with no AIS at all, and a deployment with no `AISSTREAM_API_KEY` still
+  runs them.
+
+Expect the region rail to read "AIS warm-up" on the held regions; a redeploy onto
+a populated database starts immediately. The gate is re-checked every sweep, so
+an AIS outage later on re-holds the fused regions and its recovery starts a fresh
+warm-up. `scripts/ais_health.py` prints exactly why anything is held.
 
 **Forcing an analysis in production**
 
@@ -198,7 +210,8 @@ Compose sets the first three automatically. For native dev (and for all secrets)
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
 | `ENV` | `production` | `development`, `staging` or `production` — see [Environments](#environments) |
 | `AISSTREAM_API_KEY` | — | AIS WebSocket key (ingest disabled without it) |
-| `AIS_RETENTION_DAYS` | `2` | Rolling AIS history window |
+| `AIS_RETENTION_DAYS` | `5` | Rolling AIS history window |
+| `SCHEDULER_AIS_GAP_MINUTES` | `30` | Silence that counts as a break in the AIS stream, restarting the fused warm-up |
 | `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` | — | Copernicus OAuth2 credentials for pixel fetch |
 | `ANALYSIS_API_KEY` | — | Shared secret gating `POST /api/analysis/{roi}` (non-production only) |
 | `DEVTOOLS_ENABLED` | `false` | Register `/api/dev/*`. Forbidden when `ENV=production` |

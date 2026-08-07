@@ -155,17 +155,35 @@ Don't touch any other records on `pruettfed.com` — this only adds one CNAME
 
 ### 1.6 What happens on first boot (expected, not a bug)
 
-- The scheduler holds **every** region — fused and survey — until
-  `min(ais_positions.time)` in the database shows `SCHEDULER_WARMUP_HOURS`
-  (6h) of depth. You'll see `warming_up` in the logs and in the region rail
-  on the site itself for up to 6 hours after the very first boot. This is
-  deliberate: without it, a cold deploy buys pixels for the survey regions
-  before AIS has had time to establish coverage. A *redeploy* onto an
-  already-populated database skips this — it only applies once, on a
-  genuinely empty database.
-- If `AISSTREAM_API_KEY` is missing or wrong, AIS never populates and the
-  scheduler waits out the full 8h cap (`SCHEDULER_WARMUP_MAX_HOURS`) before
-  starting anyway — check `/api/health` → `sources.ais.state`.
+- The scheduler holds regions until AIS is healthy, on different terms per
+  mode. **Fused** regions need `SCHEDULER_WARMUP_HOURS` (6h) of *continuous*
+  AIS — no gap wider than `SCHEDULER_AIS_GAP_MINUTES` (30m) — and there is
+  **no cap** on that wait. **Survey** regions want the same six hours but are
+  released after `SCHEDULER_WARMUP_MAX_HOURS` (8h) regardless, since they skip
+  fusion and are correct with no AIS at all. You'll see `warming_up` on the
+  held regions in the logs and the region rail. A *redeploy* onto an
+  already-populated database with a live stream skips this entirely.
+- **A fused region held for days is correct behaviour, not a hang.** If
+  `AISSTREAM_API_KEY` is missing or wrong — or AISStream is simply down — the
+  six fused regions never analyze, and they should not: fusing against a stale
+  buffer marks every vessel dark and pays PU for the privilege. The six survey
+  regions carry on. `/api/analysis/schedule` → `scheduler.detail` names the
+  split (`"6 regions every 900s; 6 fused regions HELD — AIS silent for 44.2h"`),
+  and the log carries a WARNING once a hold passes the 8h mark.
+
+  **Why is everything held?** One command, 0 PU:
+
+  ```
+  railway run python scripts/ais_health.py
+  ```
+
+  It runs the same query and the same predicates the gate does, and prints the
+  oldest/newest AIS, the last gap, the per-mode verdict, and which regions are
+  held. Cross-check it against `/api/health` → `sources.ais.state`: the two
+  should agree. If `sources` says `connected` while this says silent, the
+  socket is up but the subscription or the parse is broken — that is a
+  different fault from the stream being down, and only these two readings
+  together tell them apart.
 - If the SAR half never leaves `idle`, check the reason in
   `/api/analysis/schedule` → `scheduler.detail`. The two real causes are
   missing CDSE credentials and a missing/misplaced model checkpoint — the

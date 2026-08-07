@@ -124,8 +124,17 @@ def snapshot(
     for name, s in _STATE.items():
         lag = (now - s.last_message_at).total_seconds() if s.last_message_at else None
         derived = s.state
-        if derived == "connected" and lag is not None and lag > stale_after:
-            derived = "stale"
+        if derived == "connected":
+            # How long the source has been quiet. Normally that is the lag since
+            # the last message — but a connection that has never delivered one
+            # has no lag to measure, and that is the purest silent failure of
+            # all. Fall back to the connect instant so it cannot read "live"
+            # indefinitely on a socket that only ever handshook.
+            silent_for = lag
+            if silent_for is None and s.connected_since is not None:
+                silent_for = (now - s.connected_since).total_seconds()
+            if silent_for is not None and silent_for > stale_after:
+                derived = "stale"
         out[name] = {
             "state": derived,
             "last_message_at": s.last_message_at.isoformat() if s.last_message_at else None,

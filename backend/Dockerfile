@@ -29,6 +29,11 @@ RUN pip install --no-cache-dir -r requirements-ml.txt \
 COPY backend/app ./app
 # Checkpoint ships in the image; without it the scheduler reports idle.
 COPY backend/models ./models
+# 132K of plain Python, and the only ops surface production has: it registers no
+# PU-spending endpoint, so scripts/analyze.py over a shell is the documented way
+# to force a run, and scripts/ais_health.py the way to ask why regions are held.
+# Both were unrunnable in prod until this line — the image never carried them.
+COPY backend/scripts ./scripts
 COPY --from=frontend /build/dist ./static
 
 RUN useradd --system --uid 10001 app && chown -R app:app /app

@@ -101,6 +101,26 @@ def test_snapshot_stays_connected_when_lag_within_threshold():
     assert snap["ais"]["lag_seconds"] == 30.0
 
 
+def test_a_connection_that_never_delivered_a_message_goes_stale():
+    # The purest silent failure, and the one a lag-based check cannot see:
+    # the socket is up, so state is "connected", but no message ever arrived,
+    # so there is no last_message_at to measure a lag from. Measured from the
+    # connect instant instead — otherwise this reads "live" forever.
+    sources.mark_connected("ais")
+    now = sources._STATE["ais"].connected_since + timedelta(seconds=90)
+    snap = sources.snapshot(stale_after=60, _now=now)
+    assert snap["ais"]["state"] == "stale"
+    # Still None: there is genuinely no message to date, and inventing a lag
+    # here would be a worse lie than reporting none.
+    assert snap["ais"]["lag_seconds"] is None
+
+
+def test_a_fresh_connection_is_not_stale_before_the_threshold():
+    sources.mark_connected("ais")
+    now = sources._STATE["ais"].connected_since + timedelta(seconds=30)
+    assert sources.snapshot(stale_after=60, _now=now)["ais"]["state"] == "connected"
+
+
 def test_snapshot_does_not_derive_stale_when_disconnected():
     sources.mark_disconnected("ais", reason="initial")
     snap = sources.snapshot(stale_after=60)

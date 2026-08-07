@@ -67,11 +67,18 @@ class SarCoverageTooLow(Exception):
 
 
 def eligible_scenes(
-    scenes: list[SarScene], min_ais_time: datetime | None, window_hours: float
+    scenes: list[SarScene],
+    min_ais_time: datetime | None,
+    max_ais_time: datetime | None,
+    window_hours: float,
 ) -> list[SarScene]:
     """Scenes whose ±window the AIS buffer covers, newest first."""
     return sorted(
-        (s for s in scenes if coverage_ok(s.sensed_at, min_ais_time, window_hours)),
+        (
+            s
+            for s in scenes
+            if coverage_ok(s.sensed_at, min_ais_time, max_ais_time, window_hours)
+        ),
         key=lambda s: s.sensed_at,
         reverse=True,
     )
@@ -181,10 +188,13 @@ def any_in_flight() -> bool:
 
 
 # AIS coverage is judged per ROI: data in another region must not greenlight
-# fusion here, or every detection would be falsely dark.
-MIN_AIS_IN_ROI = text(
+# fusion here, or every detection would be falsely dark. Both ends, not just the
+# oldest: a buffer that stopped days ago still has a valid floor, and fusing
+# against it is exactly how a scene comes back all-dark. max(time) rides along
+# on the same scan, so the second bound is free.
+AIS_SPAN_IN_ROI = text(
     """
-    SELECT min(time) FROM ais_positions
+    SELECT min(time) AS min_time, max(time) AS max_time FROM ais_positions
     WHERE ST_Within(
         location::geometry,
         ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
@@ -224,25 +234,37 @@ async def find_target_scene(
             candidates = sorted(scenes, key=lambda s: s.sensed_at, reverse=True)
         else:
             min_lon, min_lat, max_lon, max_lat = roi.ais_bbox
-            min_ais_time = (
+            span = (
                 await session.execute(
-                    MIN_AIS_IN_ROI,
+                    AIS_SPAN_IN_ROI,
                     {"min_lon": min_lon, "min_lat": min_lat, "max_lon": max_lon, "max_lat": max_lat},
                 )
-            ).scalar()
+            ).mappings().one()
+            min_ais_time, max_ais_time = span["min_time"], span["max_time"]
             if min_ais_time is None:
                 raise NoEligibleScene(
                     f"no AIS positions recorded inside {roi.name!r} — either ingest just "
                     "started or AISStream has no receiver coverage there; fusion would "
                     "mark every detection falsely dark"
                 )
+            # Stated separately from the per-scene check below so the reason is
+            # the real one. Unlike the scheduler's gate this is a correctness
+            # bound, not policy: it has no dev escape hatch.
+            stale_h = (now - max_ais_time).total_seconds() / 3600
+            if stale_h > settings.fusion_max_time_delta_hours:
+                raise NoEligibleScene(
+                    f"newest AIS inside {roi.name!r} is {stale_h:.1f}h old (fusion window "
+                    f"{settings.fusion_max_time_delta_hours:.0f}h) — the stream is down or "
+                    "the receiver moved; fusion would mark every detection falsely dark"
+                )
             candidates = eligible_scenes(
-                scenes, min_ais_time, settings.fusion_max_time_delta_hours
+                scenes, min_ais_time, max_ais_time, settings.fusion_max_time_delta_hours
             )
             if not candidates:
                 raise NoEligibleScene(
                     f"no scene over {roi.name!r} falls inside the AIS buffer "
-                    f"(oldest AIS in ROI: {min_ais_time.isoformat()}) — let AIS ingest and retry"
+                    f"(AIS in ROI: {min_ais_time.isoformat()} to {max_ais_time.isoformat()}) "
+                    "— let AIS ingest and retry"
                 )
 
         # Newest pass that actually images the box. Catalog "intersects" is not

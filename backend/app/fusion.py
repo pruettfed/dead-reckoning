@@ -56,12 +56,25 @@ class MatchCandidate:
 
 
 def coverage_ok(
-    sensed_at: datetime, min_ais_time: datetime | None, window_hours: float
+    sensed_at: datetime,
+    min_ais_time: datetime | None,
+    max_ais_time: datetime | None,
+    window_hours: float,
 ) -> bool:
-    """Whether the AIS buffer reaches past the scene's correlation window."""
-    if min_ais_time is None:
+    """Whether the AIS buffer brackets the scene's correlation window on both sides.
+
+    The ceiling is not symmetry for its own sake: a floor-only check passes a
+    fresh scene even when ingest died days ago, because rows from before the
+    outage survive the retention prune. Fusion then matches nothing, measures a
+    0% chance-match rate on empty water, reads as discriminating, and calls
+    every vessel dark — a false dark-fleet report that looks sound.
+    """
+    if min_ais_time is None or max_ais_time is None:
         return False
-    return sensed_at - timedelta(hours=window_hours) >= min_ais_time
+    return (
+        sensed_at - timedelta(hours=window_hours) >= min_ais_time
+        and sensed_at + timedelta(hours=window_hours) <= max_ais_time
+    )
 
 
 def assign_one_to_one(candidates: list[MatchCandidate]) -> dict[int, MatchCandidate]:
