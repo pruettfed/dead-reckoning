@@ -38,6 +38,7 @@ AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream"
 BATCH_SIZE = 100
 FLUSH_INTERVAL_SECONDS = 1.0
 MAX_BACKOFF_SECONDS = 30.0
+MIN_STABLE_CONNECTION_SECONDS = 10.0
 RETENTION_INTERVAL_SECONDS = 3600.0  # hourly prune
 # Delays between flush retries on transient DB failure. A 200ms Postgres hiccup
 # shouldn't cost us a WebSocket reconnect.
@@ -62,6 +63,7 @@ async def run_ingest(stop: asyncio.Event) -> None:
     backoff = 1.0
     while not stop.is_set():
         try:
+            connected_at = time.monotonic()
             async with websockets.connect(
                 AISSTREAM_URL,
                 ping_interval=WS_PING_INTERVAL_SECONDS,
@@ -70,8 +72,13 @@ async def run_ingest(stop: asyncio.Event) -> None:
                 await ws.send(sub_msg)
                 sources.mark_connected("ais")
                 log.info("connected; subscribed to %d ROIs", len(ROIS))
-                backoff = 1.0
                 await _consume(ws, stop)
+            # Only reset backoff once the connection proved itself; a handshake
+            # that immediately dies (e.g. "no close frame received or sent")
+            # would otherwise reset to 1s every cycle and never escalate,
+            # letting a flaky/rate-limited provider be hammered indefinitely.
+            if time.monotonic() - connected_at >= MIN_STABLE_CONNECTION_SECONDS:
+                backoff = 1.0
         except asyncio.CancelledError:
             raise
         except Exception as exc:
