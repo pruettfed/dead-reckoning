@@ -42,12 +42,12 @@ export default function DossierDetail({ detection, vessel, mode, scene, color }:
     type = shipTypeLabel(detection.ship_type) ?? "Unknown type";
     sub =
       state === "matched"
-        ? "Matched to a dead-reckoned AIS position"
+        ? "Matched to an AIS position"
         : state === "dark"
           ? "No transponder return at acquisition"
           : state === "indeterminate"
-            ? "Inside an AIS vessel's uncertainty envelope — neither matched nor ruled out"
-            : "Survey region — no AIS reference";
+            ? "Inside an AIS vessel's uncertainty envelope. Neither matched nor ruled out"
+            : "Survey region. No AIS reference";
     fields.push(
       { label: "CONF", value: `${(detection.confidence * 100).toFixed(0)}%` },
       { label: "BUCKET", value: detection.confidence_bucket },

@@ -11,7 +11,7 @@ export default function Watchlist({ entries }: { entries: WatchEntry[] }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {entries.length === 0 && (
           <div style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".06em", color: C.label, padding: "4px 3px" }}>
-            no vessels watched
+            No vessels watched
           </div>
         )}
         {entries.map((w) => (

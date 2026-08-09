@@ -27,7 +27,7 @@ export default function DossierHistory({ mmsi, onSelectSighting }: Props) {
   if (mmsi === null) {
     return (
       <div style={{ fontFamily: MONO, fontSize: 10, lineHeight: 1.6, color: C.faint, padding: "6px 2px" }}>
-        No transponder identity — nothing to trace.
+        No transponder identity.
       </div>
     );
   }
@@ -50,7 +50,7 @@ export default function DossierHistory({ mmsi, onSelectSighting }: Props) {
           <span>NOW</span>
         </div>
         <div style={{ fontFamily: MONO, fontSize: 8, lineHeight: 1.5, color: C.label, marginTop: 6 }}>
-          Gaps include time spent outside the subscribed area.
+          NOTE: Gaps include time spent outside the subscribed area.
         </div>
       </div>
 

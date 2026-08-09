@@ -14,8 +14,8 @@ type Props = {
 };
 
 const BLURB = {
-  fused: "SAR detections are matched against AIS. Unmatched hulls outside the false-match floor are called dark.",
-  survey: "No AIS coverage. Contacts are counted and measured only — no vessel can be called dark here.",
+  fused: "Satellite radar detections are matched against AIS. Unmatched ships are considered dark vessels.",
+  survey: "Regions with no AIS coverage. Contacts are counted from satellite radar detections only as a region survey.",
 };
 
 export default function RegionList({ rois, mode, selected, onSelect, schedule, counts, now }: Props) {

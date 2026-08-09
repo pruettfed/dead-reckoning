@@ -59,7 +59,7 @@ export default function NextAcquisition({ roi, roiLabel, accent, now, scheduler 
           <div style={{ fontFamily: MONO, fontSize: 9.5, color: "#6d797f", marginTop: 5, lineHeight: 1.6 }}>
             {expected
               ? `${roiLabel} / ${utcStamp(expected)}`
-              : "too few recent passes over this region to estimate the next one"}
+              : "Too few recent passes over this region to estimate the next one"}
           </div>
         </div>
         {note && (

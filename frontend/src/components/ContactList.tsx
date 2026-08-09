@@ -32,7 +32,7 @@ function detFields(d: Detection, state: ContactState) {
   if (state === "indeterminate") {
     return [
       { label: "CANDIDATE", value: d.candidate_mmsi != null ? String(d.candidate_mmsi) : "—" },
-      { label: "Δ DR", value: d.match_distance_m != null ? `${d.match_distance_m.toFixed(0)} m` : "—" },
+      { label: "Δ MATCH", value: d.match_distance_m != null ? `${d.match_distance_m.toFixed(0)} m` : "—" },
     ];
   }
   return [
@@ -47,7 +47,7 @@ export default function ContactList({ mode, detections, vessels, sceneSelected, 
       <>
         {vessels.length === 0 && (
           <div style={{ fontFamily: MONO, fontSize: 9.5, lineHeight: 1.6, color: C.faint }}>
-            {mode === "survey" ? "no AIS reference here — select a pass to list observed contacts" : "no live AIS tracks in view"}
+            {mode === "survey" ? "Select a ROI and pass to list observed contacts" : "No live AIS tracks in view"}
           </div>
         )}
         {vessels.map((v) => (

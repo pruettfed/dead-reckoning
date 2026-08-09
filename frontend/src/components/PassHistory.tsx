@@ -23,7 +23,7 @@ export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, ex
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <SectionHeader title="PASS HISTORY" subtitle={roiLabel} count={String(scenes.length)} />
       {scenes.length === 0 && (
-        <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.faint, padding: "4px 3px" }}>no analyzed passes yet</div>
+        <div style={{ fontFamily: MONO, fontSize: 9.5, color: C.faint, padding: "4px 3px" }}>No analyzed passes yet</div>
       )}
       {shown.map((s, i) => {
         const failed = s.status === "failed";
