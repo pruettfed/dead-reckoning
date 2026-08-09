@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Dead Reckoning">
+  <defs>
+    <linearGradient id="dvFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff5c5c" stop-opacity=".55"/>
+      <stop offset="70%" stop-color="#f01414" stop-opacity=".16"/>
+      <stop offset="100%" stop-color="#8c0d0d" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="dvClip"><path d="M32,12 L47.0,43.2 L32,52 L17.0,43.2 Z"/></clipPath>
+  </defs>
+  <g stroke="#ff5c5c" stroke-width="1.7" fill="none" opacity="0.9" stroke-linecap="square">
+    <path d="M4,13 L4,4 L13,4"/>
+    <path d="M51,4 L60,4 L60,13"/>
+    <path d="M60,51 L60,60 L51,60"/>
+    <path d="M13,60 L4,60 L4,51"/>
+  </g>
+  <path d="M32,12 L47.0,43.2 L32,52 L17.0,43.2 Z" fill="url(#dvFill)"/>
+  <g clip-path="url(#dvClip)">
+    <line x1="0" y1="14.4" x2="64" y2="14.4" stroke="#ff5c5c" stroke-width="0.85" opacity="0.82"/>
+    <line x1="0" y1="17.1" x2="64" y2="17.1" stroke="#ff5c5c" stroke-width="0.85" opacity="0.715"/>
+    <line x1="0" y1="19.8" x2="64" y2="19.8" stroke="#ff5c5c" stroke-width="0.85" opacity="0.616"/>
+    <line x1="0" y1="22.5" x2="64" y2="22.5" stroke="#ff5c5c" stroke-width="0.85" opacity="0.524"/>
+    <line x1="0" y1="25.2" x2="64" y2="25.2" stroke="#ff5c5c" stroke-width="0.85" opacity="0.439"/>
+    <line x1="0" y1="27.9" x2="64" y2="27.9" stroke="#ff5c5c" stroke-width="0.85" opacity="0.36"/>
+    <line x1="0" y1="30.6" x2="64" y2="30.6" stroke="#ff5c5c" stroke-width="0.85" opacity="0.289"/>
+    <line x1="0" y1="33.3" x2="64" y2="33.3" stroke="#ff5c5c" stroke-width="0.85" opacity="0.225"/>
+    <line x1="0" y1="36.0" x2="64" y2="36.0" stroke="#ff5c5c" stroke-width="0.85" opacity="0.169"/>
+    <line x1="0" y1="38.7" x2="64" y2="38.7" stroke="#ff5c5c" stroke-width="0.85" opacity="0.12"/>
+    <line x1="0" y1="41.4" x2="64" y2="41.4" stroke="#ff5c5c" stroke-width="0.85" opacity="0.079"/>
+    <line x1="0" y1="44.1" x2="64" y2="44.1" stroke="#ff5c5c" stroke-width="0.85" opacity="0.046"/>
+  </g>
+  <path d="M32,12 L47.0,43.2 L32,52 L17.0,43.2 Z" fill="none" stroke="#ff5c5c" stroke-width="2.2" stroke-linejoin="round"/>
+</svg>

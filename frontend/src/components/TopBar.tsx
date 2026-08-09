@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import logo from "../assets/logo.svg";
 import { formatAgo, utcStamp } from "../countdown";
 import { aisPill, sarPill } from "../sourceHealth";
 import { C, MONO, hexA } from "../theme";
@@ -132,14 +133,7 @@ export default function TopBar({ mode, onMode, counts, health, vesselsAgo, drawe
   return (
     <div style={{ height: 40, flex: "none", display: "flex", alignItems: "stretch", background: C.chrome, borderBottom: `1px solid ${C.chromeLine}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 16px" }}>
-        <svg width="15" height="15" viewBox="0 0 16 16" style={{ flex: "none" }}>
-          <circle cx="8" cy="8" r="6.5" fill="none" stroke={C.brand} strokeWidth="1.4" />
-          <line x1="8" y1="0.5" x2="8" y2="3" stroke={C.brand} strokeWidth="1.4" />
-          <line x1="8" y1="13" x2="8" y2="15.5" stroke={C.brand} strokeWidth="1.4" />
-          <line x1="0.5" y1="8" x2="3" y2="8" stroke={C.brand} strokeWidth="1.4" />
-          <line x1="13" y1="8" x2="15.5" y2="8" stroke={C.brand} strokeWidth="1.4" />
-          <circle cx="8" cy="8" r="1.4" fill={C.brand} />
-        </svg>
+        <img src={logo} width={20} height={20} alt="" style={{ flex: "none" }} />
         <div style={{ fontWeight: 600, fontSize: 13.5, letterSpacing: ".16em", color: C.textHi, whiteSpace: "nowrap" }}>
           DEAD RECKONING
         </div>

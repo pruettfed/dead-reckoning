@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32">
+  <defs>
+    <linearGradient id="dvFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff5c5c" stop-opacity=".95"/>
+      <stop offset="58%" stop-color="#f01414" stop-opacity=".45"/>
+      <stop offset="100%" stop-color="#3d0808" stop-opacity=".03"/>
+    </linearGradient>
+    <clipPath id="dvClip"><path d="M32,12 L47.0,43.2 L32,52 L17.0,43.2 Z"/></clipPath>
+  </defs>
+  <g stroke="#ff5c5c" stroke-width="2.8" fill="none" opacity="0.85" stroke-linecap="square">
+    <path d="M4,15 L4,4 L15,4"/>
+    <path d="M49,4 L60,4 L60,15"/>
+    <path d="M60,49 L60,60 L49,60"/>
+    <path d="M15,60 L4,60 L4,49"/>
+  </g>
+  <path d="M32,12 L47.0,43.2 L32,52 L17.0,43.2 Z" fill="url(#dvFill)"/>
+  <g clip-path="url(#dvClip)">
+    <line x1="0" y1="14.4" x2="64" y2="14.4" stroke="#ff5c5c" stroke-width="1.5" opacity="0.82"/>
+    <line x1="0" y1="19.6" x2="64" y2="19.6" stroke="#ff5c5c" stroke-width="1.5" opacity="0.623"/>
+    <line x1="0" y1="24.8" x2="64" y2="24.8" stroke="#ff5c5c" stroke-width="1.5" opacity="0.451"/>
+    <line x1="0" y1="30.0" x2="64" y2="30.0" stroke="#ff5c5c" stroke-width="1.5" opacity="0.304"/>
+    <line x1="0" y1="35.2" x2="64" y2="35.2" stroke="#ff5c5c" stroke-width="1.5" opacity="0.185"/>
+    <line x1="0" y1="40.4" x2="64" y2="40.4" stroke="#ff5c5c" stroke-width="1.5" opacity="0.093"/>
+    <line x1="0" y1="45.6" x2="64" y2="45.6" stroke="#ff5c5c" stroke-width="1.5" opacity="0.031"/>
+  </g>
+  <path d="M32,12 L47.0,43.2 L32,52 L17.0,43.2 Z" fill="none" stroke="#ff5c5c" stroke-width="3.2" stroke-linejoin="round"/>
+</svg>
