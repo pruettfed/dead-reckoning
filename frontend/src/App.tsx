@@ -294,16 +294,16 @@ export default function App() {
       <HazardBar color={C.match} height={9}>
         <span
           style={{
-            background: `linear-gradient(90deg,${hexA(C.bg, 0)} 0%,${hexA(C.bg, 0.97)} 22%,${hexA(C.bg, 0.97)} 78%,${hexA(C.bg, 0)} 100%)`,
+            background: `linear-gradient(90deg,${hexA(C.bg, 0)} 0%,${hexA(C.bg, 0.97)} 20%,${hexA(C.bg, 0.97)} 80%,${hexA(C.bg, 0)} 100%)`,
             color: hexA(C.match, 0.9),
             fontFamily: MONO,
             fontSize: 7.5,
             letterSpacing: ".22em",
-            padding: "0 20px",
+            padding: "0 25px",
             whiteSpace: "nowrap",
           }}
         >
-          UNCLASSIFIED
+          PUBLIC DATA
         </span>
       </HazardBar>
 
