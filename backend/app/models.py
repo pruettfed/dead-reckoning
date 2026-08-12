@@ -28,6 +28,7 @@ __all__ = [
     "SarDetection",
     "LandPolygon",
     "PuLedgerEntry",
+    "StatusMessage",
 ]
 
 
@@ -176,6 +177,23 @@ class PuLedgerEntry(Base):
     spent_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
+
+
+class StatusMessage(Base):
+    """A single operator-posted announcement, replacing the status bar while active.
+
+    Always exactly one row (id=1) — see app/status_message.py for the upsert
+    logic. Posted via scripts/status_message.py against a shell, never over
+    HTTP: production exposes no authenticated write surface at all here.
+    """
+
+    __tablename__ = "status_message"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    level: Mapped[str] = mapped_column(String(16), nullable=False, default="warning")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class LandPolygon(Base):
