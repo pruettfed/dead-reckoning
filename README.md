@@ -1,94 +1,307 @@
-# Dark Vessel Detection
+<p align="center">
+  <img src="frontend/src/assets/logo.svg" alt="" width="76" height="76">
+</p>
 
-Maritime OSINT platform that fuses Sentinel-1 SAR imagery with public AIS data to flag "dark vessels" — ships visible in satellite imagery but not broadcasting AIS, indicating potentially illicit or military activity.
+<h1 align="center">Dead Reckoning</h1>
 
-> Portfolio project. All data sources are public and legal.
+<p align="center"><strong>OSINT Dark vessel detection platform</strong></p>
 
-## How it works
+<p align="center">
+  <a href="https://dark-vessel.pruettfed.com"><img alt="Live demo" src="https://img.shields.io/badge/Live%20site-dark--vessel.pruettfed.com-3a8dff?style=flat-square"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React%2018-61DAFB?style=flat-square&logo=react&logoColor=black">
+  <img alt="PostGIS" src="https://img.shields.io/badge/PostGIS%203.4-336791?style=flat-square&logo=postgresql&logoColor=white">
+  <img alt="YOLOv8" src="https://img.shields.io/badge/YOLOv8-ultralytics-0b1120?style=flat-square">
+  <img alt="Data" src="https://img.shields.io/badge/OSINT-Data sources public-brightgreen?style=flat-square">
+</p>
 
-1. **AIS ingestion** — an always-on AISStream WebSocket streams live vessel positions for six ROIs into PostGIS: Singapore Strait, North Taiwan / ECS, Gulf of Finland, Skagen (Kattegat), Bosphorus approaches, and Malta's Hurd Bank. Each pairs a dark-vessel narrative (shadow fleet, gray-zone activity, dark STS transfers) with probe-verified AISStream receiver coverage — see [`docs/ais-coverage.md`](docs/ais-coverage.md).
-2. **SAR detection** — on demand, the newest Sentinel-1 pass over an ROI is fetched as calibrated radar chips (Sentinel Hub Process API via Copernicus CDSE) and run through a YOLOv8 model fine-tuned on a SAR ship dataset.
-3. **Fusion** — each detected hull is cross-referenced against AIS at the acquisition timestamp (`ST_DWithin`, 500 m / ±2 h). No match → **dark vessel**, with a confidence level from the model.
-4. **Map UI** — react-leaflet map with live vessels, tracks, SAR footprints, and dark/matched detection markers.
+<p align="center">
+  <b><a href="https://dark-vessel.pruettfed.com">▶ Open the live console</a></b>
+</p>
+
+![Dead Reckoning console](docs/images/hero.png)
+
+The problem: Nearly every large ship at sea broadcasts its identity and position over AIS, a transponder system anyone can listen to. But, ships that switch it off (oil tankers, smugglers, unregistered fishing fleets, warships) vanish from tracking data.
+
+But, radar satellites can still see these ships. **Dead Reckoning** pulls
+Sentinel-1 radar imagery of twelve contested maritime regions, finds ships using a
+computer-vision model, and checks each one against the live AIS feed. A ship the radar sees that nobody is broadcasting for is a **dark vessel**.
+
+> Portfolio project. Every data source is public, free, and used within its terms.
+
+---
+
+## Features
+
+### Two modes
+
+**Fused** regions have AIS receiver coverage, so radar contacts can be checked against
+broadcasting ships and called dark. **Survey** regions have no receiver coverage, but the radar can supplement the missing reciever data. Useful for watching for entire **dark regions**.
+
+### Twelve regions
+
+| Fused | Survey |
+|---|---|
+| North Taiwan | Strait of Hormuz |
+| Gulf of Finland | Musandam Staging Area |
+| Skagen Anchorage | Kharg Island Terminal |
+| Bosphorus Approaches | Tompok Utara Anchorage |
+| Hurd Bank, Malta | Kerch Strait |
+| Syrian Coast | Northeast Somalia Coast |
+
+![Region rail](docs/images/regions.png)
+
+### Map controls
+
+Fade the radar overview in and out under the detections, show or hide live AIS vessels, hide
+small craft, and reveal the land-masked contacts.
+
+![Map controls](docs/images/controls.png)
+
+### Matching status
+
+| | Meaning |
+|---|---|
+| 🔴 **Dark** | Radar saw a ship; no AIS broadcast accounts for it. |
+| 🟢 **AIS match** | A broadcasting ship, dead-reckoned to this instant, lands on the contact. |
+| 🟠 **Unresolved** | A candidate exists, but the evidence is too weak to call either way. |
+| 🔵 **Contact** | Survey regions: a vessel was here, no claim about broadcasting. |
+| 🟣 **Land-masked** | The contact fell on land — a rock or a pier. Excluded from every count. |
+
+### Contact dossier
+
+Identity, flag, ship type, and navigational status, plus the fusion evidence behind the
+status: distance to the nearest AIS ship, the age of its last fix, and the radar displacement
+allowed for. Includes history of ship and ability to watch.
+
+![Contact dossier](docs/images/dossier.png)
+
+### Detection model
+
+YOLOv8 fine-tuned on xView3-SAR imagery via SARFish. The same sensor, resolution, and
+calibration the pipeline fetches at 10 m/px, with labels derived from AIS and
+analyst-verified. Inference tiles each scene at 800 px with global NMS, reducing every
+prediction to a centroid and a confidence bucket. Training runbook:
+[`ml/README.md`](ml/README.md).
+
+---
+
+## User guide
+
+The console is three columns: **regions** on the left, the **map** in the middle,
+**contacts** on the right.
+
+**1. Pick a mode, then a region.** The top bar splits the twelve regions into **FUSED** and **SURVEY** . The left sidebar lists the regions of the current fleet with live vessel counts and a countdown to the next satellite pass.
+
+**2. Watch live, or pick a pass.** With no pass selected you are looking at live AIS traffic
+in that region. Select a pass from **PASS HISTORY** and everything freezes at that
+acquisition instant. Click the selected pass again to return to live or the X next to SCENE ANALYSIS.
+
+**3. Read the colors.**
+
+| | Meaning |
+|---|---|
+| 🔴 **Dark** | Radar saw a ship here; no AIS broadcast can account for it. |
+| 🟢 **AIS match** | A broadcasting ship, dead-reckoned to this instant, lands on this contact. |
+| 🟠 **Unresolved** | A candidate exists but the evidence is too weak to call either way. |
+| 🔵 **Live AIS** | A broadcasting vessel, arrow showing heading. Not a radar contact. |
+| 🟣 **Land-masked** | A radar contact that fell on land — a rock or a pier, excluded from every count. |
+| 🔵 **Contact** | Survey regions only: a vessel was here. No claim about broadcasting. |
+
+**4. Tune the view.** Bottom-left controls: fade the radar imagery in and out, hide AIS
+vessels, hide small craft (usually ommitted from detection), and reveal the land-masked contacts if you want to audit them.
+
+**5. Open a contact.** Click any marker or any row in the right-hand rail. The dossier has a
+**DETAIL** tab (identity and fusion evidence) and a **HISTORY** tab (every past sighting of
+that ship). The star adds it to your watchlist, which is kept in your browser.
+
+**6. Check the footer.** The bottom bar carries the scene's own quality numbers: contacts
+found, contacts masked, the measured false-match rate, and recall against resolvable ships.
+A high false-match rate is why a scene may show no dark calls at all, the pipeline refuses to guess.
+
+---
 
 ## Tech stack
 
-- **Backend:** Python 3.12, FastAPI, SQLAlchemy (async), GeoAlchemy2, PostGIS 3.4 / PostgreSQL 16, ultralytics YOLOv8 (CPU inference)
-- **Frontend:** Vite 5, React 18, TypeScript, react-leaflet, TanStack Query
-- **Infra:** Docker Compose (local), Railway (production — API and SPA on one origin, PostGIS alongside)
+| Layer | Choices |
+|---|---|
+| **Backend** | Python 3.12, FastAPI, SQLAlchemy (async) + asyncpg, GeoAlchemy2, Pydantic Settings |
+| **Database** | PostgreSQL 16 + PostGIS 3.4 |
+| **Computer vision** | YOLOv8 (ultralytics), CPU inference, fine-tuned on Sentinel-1 GRD imagery |
+| **Frontend** | Vite 5, React 18, TypeScript, react-leaflet, TanStack Query |
+| **Data sources** | [AISStream](https://aisstream.io) WebSocket (AIS), [Copernicus CDSE](https://dataspace.copernicus.eu) Sentinel Hub Process API (SAR), OSM coastline (land mask) |
+| **Infrastructure** | Docker Compose locally; Railway in production. One image serving API + SPA, PostGIS alongside |
+| **Testing** | pytest (pure functions + `TestClient`, no DB, no network, no torch), vitest for frontend logic |
 
-## Prerequisites
+### How the pipeline fits together
 
-- Docker Desktop
-- Node.js 20 + pnpm (`npm i -g pnpm`)
-- Python 3.12 — only needed if running the backend natively outside Docker
-
-## Quickstart
-
-**Start the backend + database:**
-```bash
-docker compose up --build
+```
+AISStream WebSocket ──► PostGIS (continuous, all regions at once)
+                                    │
+Sentinel-1 catalog ──► footprint    │
+      (free)           check        │
+                          │         │
+                    pixel fetch ──► YOLOv8 (tiled) ──► land mask ──► fusion ──► API ──► map
+                     (metered)         centroids        geometric     PostGIS
 ```
 
-Verify it's healthy:
+Full detail in [`docs/architecture.md`](docs/architecture.md).
+
+---
+
+## Engineering highlights
+
+**Ships move between updates, so every position is projected forward.** AIS updates arrive
+about every three minutes. At 10 knots a ship travels most of a kilometre in that time, so
+comparing its last reported position to a satellite image taken at some other moment matches
+nothing. Every ship is instead moved forward along its course and speed to the exact second
+the image was taken, and only then compared.
+
+**The match distance is calculated, not picked.** Rather than one fixed "within 500 metres"
+rule, each ship gets its own allowance, built from real sources of error: how precise the
+position is, how far radar shifts a moving ship, and how far it could have drifted since its
+last update. A fast ship gets more room, so ordinary traffic doesn't get called dark for
+moving.
+
+**Each image measures its own error rate.** Before anything is called dark, the system drops
+test points on empty water and counts how often one lands close enough to an AIS ship to
+count as a match by pure chance. If that happens too often, the water is too crowded to draw
+conclusions from and every dark call is downgraded to unresolved. The rate is shown for each region.
+
+**The pipeline refuses to pay for a bad image.** Satellite imagery is billed per request, and the
+catalog passing over an ROI is not enough alone. A pass clipping one corner
+costs full price and returns a mostly black image. Real coverage is measured before spending
+anything, then checked again against the image that comes back. Every purchase is logged
+before the request goes out, capped by a monthly limit, and never retried, so a crash
+mid-request can't buy the same image twice.
+
+**The detection model doesn't sit in memory.** Detection runs about 152 times a month, a few
+minutes at a time. Keeping the model loaded the rest of the month was most of the hosting
+bill. It now runs in a separate process that exits when it's done. Loading it only on demand
+doesn't help, because Python never unloads a module once imported — only a process that
+exits gives the memory back.
+
+**A guard against the failure that looks like a success.** If the AIS feed dies, nothing
+matches, the error-rate check finds no false matches (there is nothing left to falsely match
+against), and the system confidently reports every ship in the image as dark. The result
+looks sound and is completely wrong. Three separate checks now require six hours of
+*uninterrupted* AIS, with no gap longer than thirty minutes, before an image may be compared
+at all.
+
+**The model was retrained for the imagery it actually sees.** The first version learned from
+imagery ten to twenty times sharper than what this pipeline downloads, where a large ship
+fills hundreds of pixels instead of about twenty. Retraining on imagery from the same
+satellite, processed exactly the same way, is what made detections reliable. Runbook in
+[`ml/README.md`](ml/README.md).
+
+---
+
+## Challenges
+
+**Reliable public AIS data isn't free.** The commercial APIs cost hundreds of dollars a
+month, and the free ones are land-based only, with data restrictions. Coverage stops at the
+horizon of whatever volunteer antenna is nearby, and it fails quietly: ships past that line
+just stop appearing, which reads as "dark" rather than "not covered". The solution was to
+probe live AIS density methodically and pick the regions with genuinely good coverage,
+sizing each one to where the data actually ends. Regions with poor AIS but useful satellite
+coverage became survey regions instead. Method and results in
+[`docs/ais-coverage.md`](docs/ais-coverage.md).
+
+**Satellite imagery is free, but not unlimited.** Copernicus bills every image request
+against a monthly quota, and larger areas cost more, so twelve regions imaged daily will
+burn through a month quickly if placed carelessly. The unintuitive part is that *where* a
+region sits matters more than how big it is. Shifting one region to line up with the
+satellite's actual flight path took it from 3 usable images a month at 179 units each to 11
+at 65 — cheaper and four times the data. Every region is priced with a free, catalog-only
+script before it ships, and a test fails the build if the set ever goes over budget.
+
+**Radar draws moving ships in the wrong place.** Radar satellites work out position partly
+from the Doppler shift of the returning signal, so a moving ship is drawn offset from where
+it really was (roughly 450 metres at 10 knots), in a direction that depends on its heading
+and the satellite's. Ignore that and normal, honestly-broadcasting traffic reads as dark, so
+it became part of the match calculation rather than something papered over with a bigger
+radius.
+
+**No public training set matched the imagery.** Most public radar ship datasets use very
+high-resolution imagery, which teaches a model to look for hull shape and wake. This detail
+does not exist at the resolution this pipeline downloads. The one usable dataset was
+xView3-SAR: same satellite, same resolution, labels checked by analysts. Even then, its
+labels are single points rather than boxes, and the brightness scaling had to be matched
+exactly to the live pipeline, with a test asserting the two never drift apart.
+
+**Land looks like ships.** At this resolution a breakwater, a rock, or a pier is a small
+bright blob, indistinguishable from a small boat. What tells them apart is location, not
+appearance, so it is settled against a coastline map instead of being asked of the model.
+Those contacts are flagged rather than deleted, so the mask can be retuned at any time
+without re-buying imagery.
+
+---
+
+## Quick start
+
+**You need:** Docker Desktop, Node.js 20 + pnpm (`npm i -g pnpm`).
+
 ```bash
-curl http://localhost:8000/api/health   # {"status":"ok","sources":{...}}
+git clone https://github.com/pruettfed/dead-reckoning.git
+cd dead-reckoning
+make start-dr            # PostGIS + API + frontend, all in Docker
 ```
 
-**Start the frontend** (native, faster hot-reload):
+Then open **http://localhost:5173**. Check the API with:
+
 ```bash
-cd frontend
-pnpm install   # first time only
-pnpm dev       # http://localhost:5173
+curl http://localhost:8000/api/health
 ```
 
-Or spin everything up via Compose:
+Other entry points:
+
 ```bash
-docker compose --profile frontend up --build
+make start-dr-backend    # database + API only
+make start-dr-prod       # the single-origin production image, locally
+make down-dr             # stop whichever stack is running
+make help                # list them all
 ```
 
-### Enabling SAR analysis
+For faster frontend iteration, run Vite natively against the Dockerized backend:
 
-Analysis is optional and admin-gated (it spends Copernicus Processing Units). Three ingredients, all in `backend/.env`:
-
-1. `AISSTREAM_API_KEY` — free at [aisstream.io](https://aisstream.io); without it there is no AIS buffer to fuse against.
-2. `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` — OAuth2 client credentials from [dataspace.copernicus.eu](https://dataspace.copernicus.eu).
-3. `ANALYSIS_API_KEY` — a secret of at least 32 characters (production refuses to boot on a weaker one); callers pass it as `X-Analysis-Key`. Only used outside production.
-
-Then drop a trained checkpoint at `backend/models/sar_ship.pt` — the full Colab fine-tune runbook is in [`ml/README.md`](ml/README.md). The `backend/models/` directory is volume-mounted, so no rebuild is needed.
-
-Analysis is scheduled automatically; the frontend has no trigger and holds no key. To force a run:
 ```bash
-# any environment — the only way in production
-cd backend && .venv/bin/python scripts/analyze.py north_taiwan
-
-# outside production, the same thing over HTTP (404 when ENV=production)
-curl -X POST -H "X-Analysis-Key: $ANALYSIS_API_KEY" \
-  http://localhost:8000/api/analysis/north_taiwan
+cd frontend && pnpm install && pnpm dev     # :5173, proxies /api → :8000
 ```
 
-Production exposes **no endpoint that spends Processing Units** — a network-reachable spend button bypasses `PU_MONTHLY_CEILING`, and a scene that fails after its pixel fetch would be re-bought on every retry.
+### Turning on live data
 
-Full endpoint reference: [`docs/api.md`](docs/api.md).
+Out of the box the app runs with an empty database. Copy `backend/.env.example` to
+`backend/.env` and fill in:
 
-### Environments
+1. **`AISSTREAM_API_KEY`** — free at [aisstream.io](https://aisstream.io). Without it there
+   is no AIS to fuse against.
+2. **`CDSE_CLIENT_ID`** / **`CDSE_CLIENT_SECRET`** — OAuth2 client credentials from
+   [dataspace.copernicus.eu](https://dataspace.copernicus.eu), for satellite imagery.
+3. **A detector checkpoint** at `backend/models/sar_ship.pt` — train one with
+   [`ml/README.md`](ml/README.md) (free Colab GPU). The directory is volume-mounted, so no
+   rebuild is needed. Without it the API and AIS ingest work fine and the entire radar half
+   silently does nothing.
 
-`ENV` selects the posture and **defaults to `production`**, so a forgotten value fails closed.
+Analysis then runs **automatically**. A scheduler sweeps every region and analyzes each new
+usable pass once, under a monthly spend ceiling. Nothing in the UI requests imagery. To
+force a run while developing:
 
-| | `development` / `staging` | `production` |
-|---|---|---|
-| `/docs`, `/redoc`, `/openapi.json` | served | **404** |
-| CORS | all methods | `GET`, `OPTIONS` only |
-| `/api/dev/*` reset endpoints | available when enabled | **never registered** |
-| `POST /api/analysis/{roi}` (spends PU) | available | **never registered** |
-| `DEVTOOLS_ENABLED=true` | allowed | **refuses to boot** |
-| Weak `ANALYSIS_API_KEY` (<32 chars) | allowed | **refuses to boot** |
+```bash
+cd backend && .venv/bin/python scripts/analyze.py north_taiwan     # spends PU
+```
 
-Credentials are never echoed: any configured secret appearing in a connection error is redacted before `/api/health` serves it.
+### Tests
 
-### Developer reset tools
+```bash
+cd backend && .venv/bin/pytest      # no database, no network, no torch required
+cd frontend && pnpm test
+```
 
-Reset SAR scenes, AIS data, or the PU ledger while iterating. Locally, use the CLI — it talks to the database directly and needs no key:
+### Developer tools
+
+Reset scenes, AIS, or the spend ledger while iterating — the CLI talks to the database
+directly and needs no key:
 
 ```bash
 cd backend
@@ -97,60 +310,71 @@ cd backend
 .venv/bin/python scripts/dev_reset.py ais
 ```
 
-The same operations are exposed over HTTP at `/api/dev/*` for a remote non-production deploy, gated by `DEVTOOLS_ENABLED=true` and a `DEVTOOLS_API_KEY` of at least 32 characters. See [`docs/api.md`](docs/api.md).
+> **Deleting scenes re-spends Processing Units** — the scheduler reads the pass as new and
+> re-fetches it. Set `SCHEDULER_ENABLED=false` first if you don't want that.
 
-**Deleting scenes re-spends PU** — the scheduler treats the pass as new and re-fetches it. Set `SCHEDULER_ENABLED=false` first if you don't want that.
+Diagnose a stalled scheduler with `scripts/ais_health.py`, which prints exactly why any
+region is being held. The same resets exist over HTTP at `/api/dev/*` for a remote
+non-production deploy, behind `DEVTOOLS_ENABLED=true` and a `DEVTOOLS_API_KEY`.
 
-### Status message banner
+---
 
-Post a short "known issue" announcement that replaces the frontend status bar with a colored banner. Shell-only, like the tools above — there is no HTTP write path in any environment:
+## API
 
-```bash
-cd backend
-.venv/bin/python scripts/status_message.py post "Scheduled maintenance 18:00 UTC" --level info
-.venv/bin/python scripts/status_message.py post "CDSE outage, no new passes" --level critical --title "OUTAGE"
-.venv/bin/python scripts/status_message.py toggle   # flip active/inactive, keeps the text
-.venv/bin/python scripts/status_message.py clear    # remove entirely
-.venv/bin/python scripts/status_message.py show     # print current state
-```
+The public API is read-only, unauthenticated, and free. Full reference with response shapes:
+[`docs/api.md`](docs/api.md). Interactive Swagger at `/docs` — served only outside
+production.
 
-Or against a running Compose stack: `docker compose exec backend python scripts/status_message.py show`.
+| Endpoint | Returns |
+|---|---|
+| `GET /api/health` | Liveness plus per-source state for AIS and the SAR connector |
+| `GET /api/status-message` | The operator announcement banner, if one is posted |
+| `GET /api/rois` | The twelve regions: boxes, mode, revisit rate, written brief |
+| `GET /api/vessels?roi=` | Latest AIS position per vessel (`?at=` for a historical instant) |
+| `GET /api/vessels/count?roi=` | Vessel count for a region |
+| `GET /api/vessels/{mmsi}/track` | Recent track history for one vessel |
+| `GET /api/scenes?roi=` | Analyzed satellite passes with per-scene quality metrics |
+| `GET /api/scenes/{id}/overview.png` | The stored radar overview image |
+| `GET /api/scenes/{id}/detections` | Radar contacts with fusion state and evidence |
+| `GET /api/analysis/next-pass` | Countdown to the next expected acquisition |
+| `GET /api/analysis/schedule` | Cross-region scheduler state |
 
-`--level` is `info` / `warning` / `critical` (default `warning`), and colors the banner (`info` = blue, `warning` = amber, `critical` = red). `--title` overrides the badge text the banner shows (normally the level itself, e.g. `WARNING`) with your own word, still in the level's color and rendered in caps — up to 24 characters, e.g. `--title "OUTAGE"`. The frontend polls `GET /api/status-message` — public and unauthenticated, same tier as `/api/health` — every 30s, so a change appears within that window with no redeploy.
+Two route groups **do not exist in production** — they return 404 there with or without a
+valid key, and never appear in the schema:
 
-See **Posting a status message in production** for details on posting in production.
+| Endpoint | Why it's gated |
+|---|---|
+| `POST /api/analysis/{roi}` | Spends Processing Units. Bypasses the monthly ceiling, and a scene that fails after its fetch is re-bought on every call. |
+| `/api/dev/*` | Destructive resets. |
 
-## Deploying
+Every response is filtered through a declared model, and error text is redacted of secrets
+*before it is stored*, not just before it is served.
 
-Production runs as **two Railway services**: `web` (this image) and `db`
-(`postgis/postgis:16-3.4` with a volume at `/var/lib/postgresql/data`). Railway's
-stock Postgres has no PostGIS, which is not optional here — four tables carry
-`Geography` columns and fusion is `ST_*` throughout.
+---
 
-The image builds the SPA and serves it from the API process, so there is **one
-origin and one public hostname**. That is the security posture, not a
-convenience: the browser never makes a cross-origin request, so CORS stops being
-load-bearing, and the API has no address of its own for anyone to find. A public
-SPA cannot hold a secret, so there is deliberately no API token — what protects
-the surface instead is rate limiting, security headers, response models that
-whitelist every field, and the fact that production registers no PU-spending or
-destructive route at all.
+## Deployment
 
-**Before the first deploy**
+Production runs on **Railway as two services**: `web` (this image) and `db`
+(`postgis/postgis:16-3.4` with a volume at `/var/lib/postgresql/data`). Railway's stock
+Postgres has no PostGIS, which is not optional here.
 
-1. Put the detector checkpoint at `backend/models/sar_ship.pt` and commit it.
-   `.gitignore` allows that one path. Without it the scheduler reports
-   `idle: model checkpoint not found`, the API and AIS ingest work fine, and the
-   entire SAR half of the app silently does nothing.
-2. Point `dark-vessel.pruettfed.com` at the `web` service. Railway issues a CNAME
-   and a TXT record to add at the registrar and provisions TLS itself.
+The image builds the SPA and serves it from the API process, so there is **one origin and
+one public hostname**. That is the security decision, not a convenience: the browser never
+makes a cross-origin request, and the API has no address of its own for anyone to find.
 
-**Environment variables on the `web` service**
+### Before the first deploy
+
+1. Commit the detector checkpoint at `backend/models/sar_ship.pt` — `.gitignore` allows that
+   one path. Without it the scheduler reports `idle: model checkpoint not found`.
+2. Point your domain at the `web` service. Railway issues a CNAME and TXT record and
+   provisions TLS itself.
+
+### Environment variables on `web`
 
 ```
 ENV=production
 DATABASE_URL=${{Postgres.DATABASE_URL}}     # Railway reference; the scheme is normalized
-CORS_ORIGINS=https://dark-vessel.pruettfed.com
+CORS_ORIGINS=https://[dark-vessel.pruettfed.com]
 ALLOWED_HOSTS=dark-vessel.pruettfed.com
 AISSTREAM_API_KEY=...
 CDSE_CLIENT_ID=...
@@ -159,105 +383,118 @@ LOG_LEVEL=INFO
 ```
 
 Do **not** copy `.env.example` verbatim — it sets `DEVTOOLS_ENABLED=true`, and
-`ENV=production` refuses to boot with that. The refusal is the feature; a
-production process must not quietly serve a destructive surface.
+`ENV=production` refuses to boot with that. The refusal is the feature.
 
-**What happens on first boot**
+`ENV` selects the posture and **defaults to `production`**, so a forgotten value fails
+closed:
 
-The lifespan waits for Postgres (a platform has no `depends_on`, so the app
-routinely starts first), creates the PostGIS extension, creates the tables, and
-loads the bundled coastline. The scheduler then holds regions until AIS is
-healthy, and it holds the two halves of the fleet on different terms:
+| | `development` / `staging` | `production` |
+|---|---|---|
+| `/docs`, `/redoc`, `/openapi.json` | served | **404** |
+| CORS | all methods | `GET`, `OPTIONS` only |
+| `/api/dev/*` reset endpoints | available when enabled | **never registered** |
+| `POST /api/analysis/{roi}` (spends PU) | available | **never registered** |
+| `DEVTOOLS_ENABLED=true` | allowed | **refuses to boot** |
+| `ANALYSIS_API_KEY` under 32 chars | allowed | **refuses to boot** |
 
-- **Fused regions** wait for `SCHEDULER_WARMUP_HOURS` (6) of *continuous* AIS,
-  with no gap longer than `SCHEDULER_AIS_GAP_MINUTES` (30). There is no cap on
-  this wait — fusing against a stale buffer calls every vessel dark, so a fused
-  region with no AIS stays held for as long as that lasts.
-- **Survey regions** wait the same six hours but are released after
-  `SCHEDULER_WARMUP_MAX_HOURS` (8) regardless. They skip fusion, so they are
-  correct with no AIS at all, and a deployment with no `AISSTREAM_API_KEY` still
-  runs them.
+### First boot
 
-Expect the region rail to read "AIS warm-up" on the held regions; a redeploy onto
-a populated database starts immediately. The gate is re-checked every sweep, so
-an AIS outage later on re-holds the fused regions and its recovery starts a fresh
-warm-up. `scripts/ais_health.py` prints exactly why anything is held.
+The app waits for Postgres, creates the PostGIS extension and tables, and loads the bundled
+coastline. The scheduler then holds regions until AIS is healthy: **fused** regions wait for
+six hours of *continuous* AIS with no cap, since fusing against a stale buffer calls
+everything dark; **survey** regions wait the same six hours but are released after eight
+regardless, so a deployment with no AIS key still produces imagery. Expect the region rail
+to read "AIS warm-up" until then. A redeploy onto a populated database starts immediately.
 
-**Forcing an analysis in production**
-
-Production exposes no PU-spending endpoint at all — `POST /api/analysis/{roi}`
-404s there even with a valid key. Forcing a run is a shell action:
+### Operating it
 
 ```bash
-railway run python scripts/analyze.py north_taiwan
-```
-
-**Posting a status message in production**
-
-Same shell-only path as local: `railway run` injects the linked environment's `DATABASE_URL`, so the CLI talks straight to the production database.
-
-```bash
-railway link   # once, to select the project + web service
+railway link                                       # once, select project + web service
 cd backend
+
+# Force an analysis (the only way in production — no HTTP route can spend PU)
+railway run python scripts/analyze.py north_taiwan
+
+# Post a banner across the top of the console
 railway run python scripts/status_message.py post "Investigating AIS ingest delay" --level warning
+railway run python scripts/status_message.py post "CDSE outage, no new passes" --level critical --title "OUTAGE"
+railway run python scripts/status_message.py toggle    # flip active/inactive, keep the text
 railway run python scripts/status_message.py clear
+railway run python scripts/status_message.py show
+
+# Why is a region being held?
+railway run python scripts/ais_health.py
 ```
 
-**Cost**
+Status message levels are `info` (blue), `warning` (amber), and `critical` (red); `--title`
+replaces the badge word with up to 24 characters of your own. The frontend polls every 30
+seconds, so it appears without a redeploy. There is deliberately no HTTP write path in any
+environment.
 
-The registry runs ~152 analyses/month, about 13 hours of work — a 1.7% duty
-cycle. Detection runs in a subprocess that exits when it is done, so torch is
-resident for that 1.7% rather than all month; on usage-metered hosting that is
-the difference between roughly $17/mo and roughly $8.50/mo. Keep it that way:
-loading the model in the API process undoes it. See `app/detect_worker.py`.
+### Cost
 
-## Commands
+The registry runs ~152 analyses a month, about 13 hours of work. Because detection runs in a
+subprocess that exits, torch is resident for that 1.7% rather than all month (roughly
+$8.50/mo). Loading the model in the API process undoes it; see
+`backend/app/detect_worker.py`.
 
-**Compose**
-- `docker compose up` — backend (:8000) + PostGIS (:5432)
-- `docker compose up --build` — rebuild images first
-- `docker compose up -d` — run in background (detached)
-- `docker compose --profile frontend up` — also start Vite dev server (:5173)
-- `docker compose down` — stop and remove containers
-- `docker compose down -v` — also wipe the postgres_data volume (fresh DB; required after schema changes — tables are created at startup, not migrated)
-- `docker compose logs backend -f` — tail backend logs
-- `docker compose logs frontend -f` — tail frontend logs
-- `docker compose restart backend` — restart the API without full teardown
-- `docker compose exec db psql -U dvd -d dvd` — open a psql shell
+---
 
-**Frontend**
-- `pnpm dev` — Vite dev server (:5173), proxies `/api` → backend
-- `pnpm build` — production build to `dist/` (the Docker image runs this and serves the result)
-- `pnpm preview` — preview the production build locally
+## Configuration reference
 
-## Environment variables
-
-Compose sets the first three automatically. For native dev (and for all secrets), copy `.env.example` → `.env` in `backend/`:
+Compose sets the first few automatically. For native development and for all secrets, copy
+`backend/.env.example` → `backend/.env`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | `postgresql+asyncpg://dvd:dvd@db:5432/dvd` | Async Postgres connection string |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
-| `ENV` | `production` | `development`, `staging` or `production` — see [Environments](#environments) |
-| `AISSTREAM_API_KEY` | — | AIS WebSocket key (ingest disabled without it) |
+| `DATABASE_URL` | set by Compose | Async Postgres connection string (a plain `postgresql://` URL is normalized) |
+| `ENV` | `production` | `development`, `staging`, or `production` |
+| `CORS_ORIGINS` | set by Compose | Comma-separated allowed origins |
+| `AISSTREAM_API_KEY` | — | AIS WebSocket key; ingest is disabled without it |
 | `AIS_RETENTION_DAYS` | `5` | Rolling AIS history window |
-| `SCHEDULER_AIS_GAP_MINUTES` | `30` | Silence that counts as a break in the AIS stream, restarting the fused warm-up |
 | `CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET` | — | Copernicus OAuth2 credentials for pixel fetch |
-| `ANALYSIS_API_KEY` | — | Shared secret gating `POST /api/analysis/{roi}` (non-production only) |
-| `DEVTOOLS_ENABLED` | `false` | Register `/api/dev/*`. Forbidden when `ENV=production` |
-| `DEVTOOLS_API_KEY` | — | Shared secret gating `/api/dev/*`; ≥32 chars or the router is skipped |
+| `SCHEDULER_ENABLED` | `true` | Master switch for automatic analysis |
+| `SCHEDULER_WARMUP_HOURS` | `6` | Continuous AIS required before fusing; `0` disables the gate |
+| `SCHEDULER_AIS_GAP_MINUTES` | `30` | Silence that counts as a break in the AIS stream |
+| `PU_MONTHLY_CEILING` | `25000` | Hard cap on scheduled imagery spend, under the 30,000 free budget |
 | `MODEL_PATH` | `models/sar_ship.pt` | YOLOv8 checkpoint path |
+| `ANALYSIS_API_KEY` | — | Gates `POST /api/analysis/{roi}`; non-production only, ≥32 chars |
+| `DEVTOOLS_ENABLED` | `false` | Register `/api/dev/*`. Forbidden when `ENV=production` |
+| `DEVTOOLS_API_KEY` | — | Gates `/api/dev/*`; ≥32 chars or the router is skipped |
 
 The complete contract lives in [`backend/.env.example`](backend/.env.example).
 
+---
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | Pipeline internals and full file map |
+| [`docs/api.md`](docs/api.md) | Endpoint reference with response shapes |
+| [`docs/ais-coverage.md`](docs/ais-coverage.md) | How AIS coverage was probed per region, and what it found |
+| [`ml/README.md`](ml/README.md) | Why xView3/SARFish, and the Colab fine-tuning runbook |
+
+---
+
 ## Acknowledgements
 
-This project builds on public data and research from the following sources.
+Built entirely on public data and published research.
 
 - **AIS positions** — [AISStream](https://aisstream.io), a free real-time AIS WebSocket feed.
-- **SAR imagery** — Contains modified Copernicus Sentinel data, via the [Copernicus Data Space Ecosystem](https://dataspace.copernicus.eu) (European Space Agency).
-- **Detection model training data** — the YOLOv8 checkpoint (`backend/models/sar_ship.pt`) was fine-tuned on:
-  - Cao, T.-T., Luckett, C., Williams, J., Cooke, T., Yip, B., Rajagopalan, A., Wong, S. "SARFish: Space-Based Maritime Surveillance Using Complex Synthetic Aperture Radar Imagery." *2022 International Conference on Digital Image Computing: Techniques and Applications (DICTA)*, IEEE. [doi:10.1109/DICTA56598.2022.10034640](https://doi.org/10.1109/DICTA56598.2022.10034640). Dataset (Apache 2.0): [ConnorLuckettDSTG/SARFish on HuggingFace](https://huggingface.co/datasets/ConnorLuckettDSTG/SARFish).
-  - Paolo, F., Lin, T.-t. T., Gupta, R., Goodman, B., Patel, N., Kuster, D., Kroodsma, D., Dunnmon, J. "xView3-SAR: Detecting Dark Fishing Activity Using Synthetic Aperture Radar Imagery." *NeurIPS 2022 Datasets and Benchmarks Track*. [arXiv:2206.00897](https://arxiv.org/abs/2206.00897). Challenge hosted by the Defense Innovation Unit and Global Fishing Watch: [iuu.xview.us](https://iuu.xview.us).
-
-See [`ml/README.md`](ml/README.md) for why these datasets were chosen for the fine-tune.
+- **SAR imagery** — Contains modified Copernicus Sentinel data, via the
+  [Copernicus Data Space Ecosystem](https://dataspace.copernicus.eu) (European Space Agency).
+- **Coastline** — OpenStreetMap contributors, via the OSM water polygons export.
+- **Detection model training data** — the YOLOv8 checkpoint was fine-tuned on:
+  - Cao, T.-T., Luckett, C., Williams, J., Cooke, T., Yip, B., Rajagopalan, A., Wong, S.
+    "SARFish: Space-Based Maritime Surveillance Using Complex Synthetic Aperture Radar
+    Imagery." *2022 International Conference on Digital Image Computing: Techniques and
+    Applications (DICTA)*, IEEE.
+    [doi:10.1109/DICTA56598.2022.10034640](https://doi.org/10.1109/DICTA56598.2022.10034640).
+    Dataset (Apache 2.0):
+    [ConnorLuckettDSTG/SARFish](https://huggingface.co/datasets/ConnorLuckettDSTG/SARFish).
+  - Paolo, F., Lin, T.-t. T., Gupta, R., Goodman, B., Patel, N., Kuster, D., Kroodsma, D.,
+    Dunnmon, J. "xView3-SAR: Detecting Dark Fishing Activity Using Synthetic Aperture Radar
+    Imagery." *NeurIPS 2022 Datasets and Benchmarks Track*.
+    [arXiv:2206.00897](https://arxiv.org/abs/2206.00897). Challenge hosted by the Defense
+    Innovation Unit and Global Fishing Watch: [iuu.xview.us](https://iuu.xview.us).
