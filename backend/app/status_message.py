@@ -35,7 +35,8 @@ _UPSERT = text(
 )
 _TOGGLE = text(
     "UPDATE status_message SET active = NOT active, updated_at = now() "
-    "WHERE id = :id RETURNING message, level, active, updated_at"
+    "WHERE id = :id AND message IS NOT NULL "
+    "RETURNING message, level, active, updated_at"
 )
 _CLEAR = text(
     "UPDATE status_message SET message = NULL, level = 'warning', "

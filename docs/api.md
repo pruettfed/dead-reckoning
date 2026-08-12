@@ -43,6 +43,36 @@ an analysis is fetching imagery.
 
 ---
 
+## `GET /api/status-message`
+
+The operator-posted announcement banner, if any. Public, unauthenticated, free
+(0 PU) — registered unconditionally in every environment, unlike the
+`/api/analysis/{roi}` and `/api/dev/*` routes above and below it.
+
+**Response**
+
+```json
+{
+  "active": true,
+  "message": "AIS ingest degraded, investigating",
+  "level": "warning",
+  "updated_at": "2026-08-11T14:02:11Z"
+}
+```
+
+| Field        | Description                                                   |
+|--------------|-----------------------------------------------------------------|
+| `active`     | Whether the banner should currently be shown                    |
+| `message`    | The announcement text; `null` when none has ever been posted    |
+| `level`      | `info` / `warning` / `critical`                                 |
+| `updated_at` | When the row last changed; `null` when none has ever been posted|
+
+There is deliberately no HTTP write path. The message is set from a shell
+only, over `backend/scripts/status_message.py` (`post` / `toggle` / `clear` /
+`show`), talking to the database directly.
+
+---
+
 ## `GET /api/rois`
 
 The predefined Regions of Interest. Every AIS endpoint takes `?roi=<name>`;
