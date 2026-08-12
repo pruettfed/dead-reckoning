@@ -108,6 +108,7 @@ Post a short "known issue" announcement that replaces the frontend status bar wi
 ```bash
 cd backend
 .venv/bin/python scripts/status_message.py post "Scheduled maintenance 18:00 UTC" --level info
+.venv/bin/python scripts/status_message.py post "CDSE outage, no new passes" --level critical --title "OUTAGE"
 .venv/bin/python scripts/status_message.py toggle   # flip active/inactive, keeps the text
 .venv/bin/python scripts/status_message.py clear    # remove entirely
 .venv/bin/python scripts/status_message.py show     # print current state
@@ -115,7 +116,7 @@ cd backend
 
 Or against a running Compose stack: `docker compose exec backend python scripts/status_message.py show`.
 
-`--level` is `info` / `warning` / `critical` (default `warning`), and colors the banner (`info` = blue, `warning` = amber, `critical` = red). The frontend polls `GET /api/status-message` — public and unauthenticated, same tier as `/api/health` — every 30s, so a change appears within that window with no redeploy.
+`--level` is `info` / `warning` / `critical` (default `warning`), and colors the banner (`info` = blue, `warning` = amber, `critical` = red). `--title` overrides the badge text the banner shows (normally the level itself, e.g. `WARNING`) with your own word, still in the level's color and rendered in caps — up to 24 characters, e.g. `--title "OUTAGE"`. The frontend polls `GET /api/status-message` — public and unauthenticated, same tier as `/api/health` — every 30s, so a change appears within that window with no redeploy.
 
 See **Posting a status message in production** for details on posting in production.
 

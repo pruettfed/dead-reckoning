@@ -56,6 +56,7 @@ The operator-posted announcement banner, if any. Public, unauthenticated, free
   "active": true,
   "message": "AIS ingest degraded, investigating",
   "level": "warning",
+  "title": null,
   "updated_at": "2026-08-11T14:02:11Z"
 }
 ```
@@ -64,6 +65,7 @@ The operator-posted announcement banner, if any. Public, unauthenticated, free
 |--------------|-----------------------------------------------------------------|
 | `active`     | Whether the banner should currently be shown                    |
 | `message`    | The announcement text; `null` when none has ever been posted    |
+| `title`      | Overrides the INFO/WARNING/CRITICAL badge text (still colored by `level`); `null` when not set |
 | `level`      | `info` / `warning` / `critical`                                 |
 | `updated_at` | When the row last changed; `null` when none has ever been posted|
 

@@ -19,50 +19,8 @@ const LEVEL_COLOR: Record<StatusMessage["level"], string> = {
 };
 
 export default function StatusBar({ roiLabel, stats, ticker, statusMessage }: Props) {
-  if (statusMessage?.active && statusMessage.message) {
-    const color = LEVEL_COLOR[statusMessage.level] ?? C.amber;
-    return (
-      <div
-        style={{
-          height: 30,
-          flex: "none",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "0 14px",
-          background: hexA(color, 0.14),
-          borderTop: `1px solid ${hexA(color, 0.55)}`,
-          overflowX: "auto",
-          overflowY: "hidden",
-        }}
-      >
-        <span
-          style={{
-            fontFamily: MONO,
-            fontSize: 9.5,
-            letterSpacing: ".14em",
-            color,
-            whiteSpace: "nowrap",
-            flex: "none",
-          }}
-        >
-          {statusMessage.level.toUpperCase()}
-        </span>
-        <span
-          style={{
-            fontFamily: MONO,
-            fontSize: 10.5,
-            color: C.textHi,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {statusMessage.message}
-        </span>
-      </div>
-    );
-  }
+  const showMessage = statusMessage?.active && statusMessage.message;
+  const messageColor = showMessage ? LEVEL_COLOR[statusMessage.level] ?? C.amber : undefined;
 
   return (
     <div style={{ height: 30, flex: "none", display: "flex", alignItems: "stretch", background: C.chrome, borderTop: `1px solid ${C.chromeLine}`, overflowX: "auto", overflowY: "hidden" }}>
@@ -75,7 +33,41 @@ export default function StatusBar({ roiLabel, stats, ticker, statusMessage }: Pr
           <span style={{ fontFamily: MONO, fontSize: 10.5, color: s.color, whiteSpace: "nowrap" }}>{s.v}</span>
         </div>
       ))}
-      <Ticker items={ticker} />
+      {showMessage ? (
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            minWidth: 40,
+            alignItems: "center",
+            gap: 8,
+            padding: "0 15px",
+            border: `1px solid ${hexA(messageColor!, 0.55)}`,
+            borderRight: "none",
+            background: hexA(messageColor!, 0.14),
+            overflow: "hidden",
+          }}
+        >
+          <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".14em", color: messageColor, whiteSpace: "nowrap", flex: "none" }}>
+            {(statusMessage!.title ?? statusMessage!.level).toUpperCase()}
+          </span>
+          <span
+            style={{
+              fontFamily: MONO,
+              fontSize: 10.5,
+              fontWeight: 600,
+              color: C.textHi,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {statusMessage!.message}
+          </span>
+        </div>
+      ) : (
+        <Ticker items={ticker} />
+      )}
     </div>
   );
 }

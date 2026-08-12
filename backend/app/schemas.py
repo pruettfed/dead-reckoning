@@ -42,6 +42,7 @@ class StatusMessage(Base):
     active: bool
     message: str | None
     level: str
+    title: str | None = None
     updated_at: datetime | None = None
 
 

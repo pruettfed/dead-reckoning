@@ -7,6 +7,7 @@ of ENV — production exposes no HTTP write path for this at all, by design
     cd backend
     .venv/bin/python scripts/status_message.py post "AIS ingest degraded, investigating" --level warning
     .venv/bin/python scripts/status_message.py post "Scheduled maintenance 18:00 UTC" --level info
+    .venv/bin/python scripts/status_message.py post "CDSE outage, no new passes" --level critical --title "OUTAGE"
     .venv/bin/python scripts/status_message.py toggle
     .venv/bin/python scripts/status_message.py clear
     .venv/bin/python scripts/status_message.py show
@@ -33,7 +34,8 @@ def _print_status(status: dict) -> None:
         print("no message set")
         return
     state = "ACTIVE" if status["active"] else "inactive"
-    print(f"[{state}] level={status['level']}")
+    title_suffix = f" title={status['title']}" if status.get("title") else ""
+    print(f"[{state}] level={status['level']}{title_suffix}")
     print(status["message"] or "(no message)")
     if status["updated_at"]:
         print(f"updated: {status['updated_at']:%Y-%m-%d %H:%M:%S %Z}")
@@ -41,12 +43,12 @@ def _print_status(status: dict) -> None:
 
 async def _run_post(args: argparse.Namespace) -> int:
     try:
-        status_message.validate_post(args.message, args.level)
+        status_message.validate_post(args.message, args.level, args.title)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     async with SessionLocal() as session:
-        result = await status_message.post(session, args.message, args.level)
+        result = await status_message.post(session, args.message, args.level, args.title)
         await session.commit()
     _print_status(result)
     return 0
@@ -87,6 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
     post = subparsers.add_parser("post", help="set the message and level, and activate it")
     post.add_argument("message")
     post.add_argument("--level", choices=status_message.VALID_LEVELS, default="warning")
+    post.add_argument(
+        "--title",
+        default=None,
+        help="override the INFO/WARNING/CRITICAL badge text (still colored by --level)",
+    )
     post.set_defaults(func=_run_post)
 
     toggle = subparsers.add_parser("toggle", help="flip active/inactive without losing the text")

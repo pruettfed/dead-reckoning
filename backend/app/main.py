@@ -87,6 +87,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await landmask.apply_schema(conn)
         await fusion.apply_schema(conn)
         await ingest.apply_schema(conn)
+        await status_message.apply_schema(conn)
         loaded = await landmask.load_bundled_polygons(conn)
         # In-flight analyses live only in `pipeline._in_flight`, so any restart
         # orphans their rows. Nothing is retrying them; say so.

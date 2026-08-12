@@ -15,6 +15,7 @@ export type StatusMessage = {
   active: boolean;
   message: string | null;
   level: "info" | "warning" | "critical";
+  title: string | null;
   updated_at: string | null;
 };
 

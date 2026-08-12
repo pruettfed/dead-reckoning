@@ -192,6 +192,10 @@ class StatusMessage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     level: Mapped[str] = mapped_column(String(16), nullable=False, default="warning")
+    # Overrides the INFO/WARNING/CRITICAL badge text shown in the frontend
+    # while keeping `level`'s color — see app/status_message.py apply_schema
+    # for the live-DB migration (this column postdates the original table).
+    title: Mapped[str | None] = mapped_column(String(24), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
