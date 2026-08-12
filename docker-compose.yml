@@ -42,7 +42,6 @@ services:
 
   frontend:
     build: ./frontend
-    profiles: ["frontend"]
     environment:
       VITE_API_PROXY_TARGET: http://backend:8000
     volumes:
@@ -50,8 +49,6 @@ services:
       - /app/node_modules
     ports:
       - "5173:5173"
-    depends_on:
-      - backend
 
 volumes:
   postgres_data:

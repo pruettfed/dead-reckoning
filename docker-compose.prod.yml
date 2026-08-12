@@ -1,0 +1,45 @@
+# Mimics the Railway topology: one image (API + built SPA) + PostGIS, no
+# live-reload, no source mounts, ENV=production. See README "Deploying".
+#
+# Explicit project name so this stack never collides with the dev stack in
+# docker-compose.yml (both would otherwise default to the same project name
+# and fight over a service called "db").
+name: dead-reckoning-prod
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: dvd
+      POSTGRES_PASSWORD: dvd
+      POSTGRES_DB: dvd
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dvd -d dvd"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      # Overrides env_file so the compose-internal DB hostname is always used.
+      DATABASE_URL: postgresql+asyncpg://dvd:dvd@db:5432/dvd
+      ENV: production
+      # Single origin — the SPA is served by this same process, so there's no
+      # cross-origin request for CORS_ORIGINS to allow.
+      CORS_ORIGINS: ""
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data_prod:
