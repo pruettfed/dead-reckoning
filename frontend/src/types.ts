@@ -11,6 +11,13 @@ export type SourceHealth = {
 
 export type Health = { status: string; sources: Record<string, SourceHealth> };
 
+export type StatusMessage = {
+  active: boolean;
+  message: string | null;
+  level: "info" | "warning" | "critical";
+  updated_at: string | null;
+};
+
 export type Bbox = [number, number, number, number]; // min_lon, min_lat, max_lon, max_lat
 
 export type Roi = {

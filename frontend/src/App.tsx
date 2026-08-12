@@ -26,7 +26,7 @@ import { formatAgo, useNow, utcStamp } from "./countdown";
 import { C, MONO, hexA, stateColor } from "./theme";
 import { buildTicker } from "./ticker";
 import { useWatchlist } from "./useWatchlist";
-import type { Detection, Health, Roi, Schedule, Scene, Vessel } from "./types";
+import type { Detection, Health, Roi, Schedule, Scene, StatusMessage, Vessel } from "./types";
 
 export type Selection = { kind: "det" | "ais"; id: number } | null;
 
@@ -74,6 +74,11 @@ export default function App() {
   const rois = useQuery({ queryKey: ["rois"], queryFn: () => apiGet<Roi[]>("/rois") });
   const health = useQuery({ queryKey: ["health"], queryFn: () => apiGet<Health>("/health"), refetchInterval: 30_000 });
   const schedule = useQuery({ queryKey: ["schedule"], queryFn: () => apiGet<Schedule>("/analysis/schedule"), refetchInterval: 60_000 });
+  const statusMessage = useQuery({
+    queryKey: ["status-message"],
+    queryFn: () => apiGet<StatusMessage>("/status-message"),
+    refetchInterval: 30_000,
+  });
   const scenes = useQuery({
     queryKey: ["scenes", roi],
     queryFn: () => apiGet<Scene[]>("/scenes", { roi }),
@@ -304,6 +309,7 @@ export default function App() {
 
       <StatusBar
         roiLabel={roiObj?.label ?? "—"}
+        statusMessage={statusMessage.data}
         stats={[
           { k: "CONTACTS", v: scene ? String(scene.detection_count) : String(railVessels.length), color: C.text },
           { k: "MASKED", v: scene ? String(scene.land_count) : "—", color: C.textMid },
