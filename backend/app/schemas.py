@@ -38,6 +38,13 @@ class Health(Base):
     sources: dict[str, SourceState]
 
 
+class StatusMessage(Base):
+    active: bool
+    message: str | None
+    level: str
+    updated_at: datetime | None = None
+
+
 class Roi(Base):
     name: str
     label: str

@@ -24,6 +24,7 @@ from app import (
     schemas,
     scheduler,
     sources,
+    status_message,
 )
 from app.config import Settings, get_settings
 from app.database import Base, SessionLocal, engine, get_session
@@ -161,6 +162,17 @@ async def health(session: Annotated[AsyncSession, Depends(get_session)]) -> dict
         "database": database,
         "sources": sources.snapshot(),
     }
+
+
+@app.get(
+    "/api/status-message",
+    response_model=schemas.StatusMessage,
+    summary="Current ops-posted announcement, if any (free)",
+)
+async def get_status_message(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    return await status_message.get_status(session)
 
 
 @app.get("/api/rois", response_model=list[schemas.Roi])
