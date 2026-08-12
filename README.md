@@ -101,6 +101,24 @@ The same operations are exposed over HTTP at `/api/dev/*` for a remote non-produ
 
 **Deleting scenes re-spends PU** — the scheduler treats the pass as new and re-fetches it. Set `SCHEDULER_ENABLED=false` first if you don't want that.
 
+### Status message banner
+
+Post a short "known issue" announcement that replaces the frontend status bar with a colored banner. Shell-only, like the tools above — there is no HTTP write path in any environment:
+
+```bash
+cd backend
+.venv/bin/python scripts/status_message.py post "Scheduled maintenance 18:00 UTC" --level info
+.venv/bin/python scripts/status_message.py toggle   # flip active/inactive, keeps the text
+.venv/bin/python scripts/status_message.py clear    # remove entirely
+.venv/bin/python scripts/status_message.py show     # print current state
+```
+
+Or against a running Compose stack: `docker compose exec backend python scripts/status_message.py show`.
+
+`--level` is `info` / `warning` / `critical` (default `warning`), and colors the banner (`info` = blue, `warning` = amber, `critical` = red). The frontend polls `GET /api/status-message` — public and unauthenticated, same tier as `/api/health` — every 30s, so a change appears within that window with no redeploy.
+
+See **Posting a status message in production** for details on posting in production.
+
 ## Deploying
 
 Production runs as **two Railway services**: `web` (this image) and `db`
@@ -171,6 +189,17 @@ Production exposes no PU-spending endpoint at all — `POST /api/analysis/{roi}`
 
 ```bash
 railway run python scripts/analyze.py north_taiwan
+```
+
+**Posting a status message in production**
+
+Same shell-only path as local: `railway run` injects the linked environment's `DATABASE_URL`, so the CLI talks straight to the production database.
+
+```bash
+railway link   # once, to select the project + web service
+cd backend
+railway run python scripts/status_message.py post "Investigating AIS ingest delay" --level warning
+railway run python scripts/status_message.py clear
 ```
 
 **Cost**
