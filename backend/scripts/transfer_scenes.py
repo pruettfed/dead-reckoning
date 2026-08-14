@@ -257,6 +257,114 @@ async def _run_export(args: argparse.Namespace) -> int:
     return 0
 
 
+SCENE_UPSERT = """
+    INSERT INTO sar_scenes (
+        id, name, roi, sensed_at, footprint, platform, status, processed_at,
+        error, imaged_bbox, overview_png, chance_match_rate,
+        recall_large_total, recall_large_detected
+    ) VALUES (
+        :id, :name, :roi, :sensed_at, ST_GeogFromText(:footprint_ewkt), :platform,
+        :status, :processed_at, :error, :imaged_bbox, :overview_png,
+        :chance_match_rate, :recall_large_total, :recall_large_detected
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        roi = EXCLUDED.roi,
+        sensed_at = EXCLUDED.sensed_at,
+        footprint = EXCLUDED.footprint,
+        platform = EXCLUDED.platform,
+        status = EXCLUDED.status,
+        processed_at = EXCLUDED.processed_at,
+        error = EXCLUDED.error,
+        imaged_bbox = EXCLUDED.imaged_bbox,
+        overview_png = EXCLUDED.overview_png,
+        chance_match_rate = EXCLUDED.chance_match_rate,
+        recall_large_total = EXCLUDED.recall_large_total,
+        recall_large_detected = EXCLUDED.recall_large_detected
+"""
+
+# Delete-then-insert rather than upsert: sar_detections.id is an autoincrement
+# bigint and the target already holds rows in the same range, so carrying local
+# ids across would collide. Letting the target's sequence assign makes a
+# re-import converge instead of duplicating.
+DETECTION_DELETE = "DELETE FROM sar_detections WHERE scene_id = ANY(:scene_ids)"
+
+DETECTION_INSERT = """
+    INSERT INTO sar_detections (
+        scene_id, location, confidence, confidence_bucket, match_state, is_dark,
+        matched_mmsi, candidate_mmsi, match_distance_m, match_time_delta_s,
+        dark_margin_m, on_land
+    ) VALUES (
+        :scene_id, ST_GeogFromText(:location_ewkt), :confidence, :confidence_bucket,
+        :match_state, :is_dark, :matched_mmsi, :candidate_mmsi, :match_distance_m,
+        :match_time_delta_s, :dark_margin_m, :on_land
+    )
+"""
+
+# Guarded on last_updated: if AIS resumes, live metadata must not be clobbered
+# by an older import.
+SHIP_UPSERT = """
+    INSERT INTO ship_metadata (mmsi, ship_name, ship_type, callsign, last_updated)
+    VALUES (:mmsi, :ship_name, :ship_type, :callsign, :last_updated)
+    ON CONFLICT (mmsi) DO UPDATE SET
+        ship_name = EXCLUDED.ship_name,
+        ship_type = EXCLUDED.ship_type,
+        callsign = EXCLUDED.callsign,
+        last_updated = EXCLUDED.last_updated
+    WHERE ship_metadata.last_updated < EXCLUDED.last_updated
+"""
+
+GZIP_MAGIC = b"\x1f\x8b"
+
+
+def read_stream(raw: bytes) -> list[dict]:
+    """Accept either raw gzip or the base64 wrapping the ssh pipe needs."""
+    blob = raw if raw[:2] == GZIP_MAGIC else base64.b64decode(raw)
+    return decode_stream(blob)
+
+
+async def _run_import(args: argparse.Namespace) -> int:
+    from sqlalchemy import text  # noqa: PLC0415
+
+    from app.database import SessionLocal  # noqa: PLC0415
+
+    records = read_stream(sys.stdin.buffer.read())
+    scenes = [r for r in records if r["kind"] == "scene"]
+    detections = [r for r in records if r["kind"] == "detection"]
+    ships = [r for r in records if r["kind"] == "ship"]
+    scene_ids = [r["id"] for r in scenes]
+
+    async with SessionLocal() as session:
+        for record in scenes:
+            await session.execute(text(SCENE_UPSERT), record_to_scene_params(record))
+        removed = await session.execute(text(DETECTION_DELETE), {"scene_ids": scene_ids})
+        if detections:
+            await session.execute(
+                text(DETECTION_INSERT),
+                [record_to_detection_params(r) for r in detections],
+            )
+        for record in ships:
+            await session.execute(text(SHIP_UPSERT), record_to_ship_params(record))
+
+        # Settle the transaction before reporting: a message saying "wrote" must
+        # not precede the commit that could still fail.
+        if args.dry_run:
+            await session.rollback()
+        else:
+            await session.commit()
+
+    verb = "would write" if args.dry_run else "wrote"
+    print(
+        f"{verb} {len(scenes)} scenes, {len(detections)} detections "
+        f"(replacing {removed.rowcount or 0}), {len(ships)} ship_metadata rows"
+    )
+    for record in scenes:
+        print(f"  {record['roi']:<20} {record['sensed_at'][:10]}  {record['id']}")
+    if args.dry_run:
+        print("dry run — rolled back")
+    return 0
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -273,6 +381,10 @@ async def main() -> int:
         help="ROI to export processed scenes for; repeatable",
     )
     export.set_defaults(func=_run_export)
+
+    importer = subparsers.add_parser("import", help="read a stream on stdin and write it")
+    importer.add_argument("--dry-run", action="store_true", help="report, then roll back")
+    importer.set_defaults(func=_run_import)
 
     args = parser.parse_args()
     return await args.func(args)
