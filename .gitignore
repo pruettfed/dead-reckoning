@@ -22,6 +22,9 @@ data/
 # DB
 *.db
 
+# Scene transfer export (imagery-derived, ~7 MB, not for the repo)
+backend/export.jsonl.gz
+
 # Claude Code
 .claude/settings.local.json
 .claude/worktrees/

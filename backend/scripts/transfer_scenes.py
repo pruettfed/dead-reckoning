@@ -170,3 +170,113 @@ def validate(records: list[dict]) -> list[dict]:
     if orphans:
         raise ValueError(f"detections reference scenes not in the stream: {orphans}")
     return records
+
+
+SCENE_SELECT = """
+    SELECT id, name, roi, sensed_at, platform, status, processed_at, error,
+           imaged_bbox, chance_match_rate, recall_large_total, recall_large_detected,
+           ST_AsEWKT(footprint) AS footprint_ewkt,
+           overview_png
+    FROM sar_scenes
+    WHERE roi = ANY(:rois) AND status = 'processed'
+    ORDER BY roi, sensed_at
+"""
+
+DETECTION_SELECT = """
+    SELECT scene_id, confidence, confidence_bucket, match_state, is_dark,
+           matched_mmsi, candidate_mmsi, match_distance_m, match_time_delta_s,
+           dark_margin_m, on_land,
+           ST_AsEWKT(location) AS location_ewkt
+    FROM sar_detections
+    WHERE scene_id = ANY(:scene_ids)
+    ORDER BY scene_id, id
+"""
+
+# Both match columns, because /api/scenes/{id}/detections joins ship_metadata on
+# each: a candidate's name is what makes an indeterminate contact readable.
+SHIP_SELECT = """
+    SELECT mmsi, ship_name, ship_type, callsign, last_updated
+    FROM ship_metadata
+    WHERE mmsi IN (
+        SELECT matched_mmsi FROM sar_detections
+        WHERE scene_id = ANY(:scene_ids) AND matched_mmsi IS NOT NULL
+        UNION
+        SELECT candidate_mmsi FROM sar_detections
+        WHERE scene_id = ANY(:scene_ids) AND candidate_mmsi IS NOT NULL
+    )
+    ORDER BY mmsi
+"""
+
+
+async def _run_export(args: argparse.Namespace) -> int:
+    from sqlalchemy import text  # noqa: PLC0415
+
+    from app.database import SessionLocal  # noqa: PLC0415
+
+    async with SessionLocal() as session:
+        scenes = (
+            await session.execute(text(SCENE_SELECT), {"rois": args.rois})
+        ).mappings().all()
+        if not scenes:
+            print(f"no processed scenes for {args.rois}", file=sys.stderr)
+            return 1
+        scene_ids = [row["id"] for row in scenes]
+        detections = (
+            await session.execute(text(DETECTION_SELECT), {"scene_ids": scene_ids})
+        ).mappings().all()
+        ships = (
+            await session.execute(text(SHIP_SELECT), {"scene_ids": scene_ids})
+        ).mappings().all()
+
+    records = [
+        {
+            "kind": "meta",
+            "version": FORMAT_VERSION,
+            "exported_at": datetime.now(tz=timezone.utc).isoformat(),
+            "counts": {
+                "scenes": len(scenes),
+                "detections": len(detections),
+                "ships": len(ships),
+            },
+        }
+    ]
+    records.extend(scene_to_record(row) for row in scenes)
+    records.extend(detection_to_record(row) for row in detections)
+    records.extend(ship_to_record(row) for row in ships)
+
+    blob = encode_stream(validate(records))
+    sys.stdout.buffer.write(blob)
+    sys.stdout.buffer.flush()
+    for row in scenes:
+        print(f"  {row['roi']:<20} {row['sensed_at']:%Y-%m-%d}  {row['id']}", file=sys.stderr)
+    print(
+        f"exported {len(scenes)} scenes, {len(detections)} detections, "
+        f"{len(ships)} ship_metadata rows ({len(blob) / 1e6:.1f} MB gzipped)",
+        file=sys.stderr,
+    )
+    return 0
+
+
+async def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    export = subparsers.add_parser("export", help="write processed scenes to stdout")
+    export.add_argument(
+        "--roi",
+        action="append",
+        dest="rois",
+        required=True,
+        metavar="ROI",
+        help="ROI to export processed scenes for; repeatable",
+    )
+    export.set_defaults(func=_run_export)
+
+    args = parser.parse_args()
+    return await args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(asyncio.run(main()))
