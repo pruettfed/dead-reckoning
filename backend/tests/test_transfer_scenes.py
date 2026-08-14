@@ -5,16 +5,22 @@ module exercises only the serialisation half — same arrangement as
 tests/test_bench_detector.py.
 """
 
+import base64
 import json
 from datetime import datetime, timezone
 
 import pytest
 
+from app.models import SarDetection, SarSceneRow, ShipMetadata
 from scripts.transfer_scenes import (
+    DETECTION_COLUMNS,
     FORMAT_VERSION,
+    SCENE_COLUMNS,
+    SHIP_COLUMNS,
     decode_stream,
     detection_to_record,
     encode_stream,
+    read_stream,
     record_to_detection_params,
     record_to_scene_params,
     record_to_ship_params,
@@ -151,6 +157,8 @@ class TestShipRoundTrip:
         row = SHIP_ROW | {"ship_name": None, "callsign": None, "ship_type": None}
         params = record_to_ship_params(ship_to_record(row))
         assert params["ship_name"] is None
+        assert params["callsign"] is None
+        assert params["ship_type"] is None
 
 
 class TestStream:
@@ -184,3 +192,44 @@ class TestStream:
     def test_accepts_detection_matching_its_scene(self):
         records = [meta(), scene_to_record(SCENE_ROW), detection_to_record(DETECTION_ROW)]
         assert validate(records) == records
+
+    def test_rejects_record_missing_kind(self):
+        # A concatenated or hand-edited stream should fail the same way as
+        # every other malformed-stream case: ValueError, not a bare KeyError.
+        records = [meta(), scene_to_record(SCENE_ROW)]
+        del records[1]["kind"]
+        with pytest.raises(ValueError, match="kind"):
+            validate(records)
+
+
+class TestReadStream:
+    def test_base64_matches_raw_gzip(self):
+        blob = encode_stream([meta(), scene_to_record(SCENE_ROW)])
+        assert read_stream(base64.b64encode(blob)) == read_stream(blob)
+
+    def test_base64_with_embedded_newlines(self):
+        # /usr/bin/base64 wraps output at 76 columns; b64decode must discard
+        # those newlines rather than choke on them.
+        blob = encode_stream([meta(), scene_to_record(SCENE_ROW)])
+        encoded = base64.b64encode(blob)
+        wrapped = b"\n".join(encoded[i : i + 76] for i in range(0, len(encoded), 76)) + b"\n"
+        assert read_stream(wrapped) == read_stream(blob)
+
+
+class TestColumnsMatchModels:
+    """The column tuples are hand-maintained and are the wire format's single
+    source of truth. No Alembic, no linter, no CI means a column added to
+    app.models would otherwise be silently dropped by export with no test
+    failing."""
+
+    def test_scene_columns_match_model(self):
+        model_columns = set(SarSceneRow.__table__.columns.keys())
+        assert set(SCENE_COLUMNS) == model_columns - {"footprint", "overview_png"}
+
+    def test_detection_columns_match_model(self):
+        model_columns = set(SarDetection.__table__.columns.keys())
+        assert set(DETECTION_COLUMNS) == model_columns - {"id", "location"}
+
+    def test_ship_columns_match_model(self):
+        model_columns = set(ShipMetadata.__table__.columns.keys())
+        assert set(SHIP_COLUMNS) == model_columns

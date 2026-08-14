@@ -17,6 +17,12 @@ which fusion never recomputes on read.
     base64 < backend/export.jsonl.gz \
         | railway ssh -s web -- python scripts/transfer_scenes.py import
 
+    # scene ids are CDSE product UUIDs and collide across machines: a re-import
+    # that would replace detections already in the target aborts unless told
+    # the replacement is intended
+    base64 < backend/export.jsonl.gz \
+        | railway ssh -s web -- python scripts/transfer_scenes.py import --force
+
 AIS positions are deliberately not transferred: AIS_RETENTION_DAYS pruned them
 and none survive on either side. A matched detection therefore renders with no
 AIS position beside it. `pu_ledger` is deliberately not transferred either — it
@@ -164,6 +170,8 @@ def validate(records: list[dict]) -> list[dict]:
         raise ValueError(
             f"unsupported format version {version!r}, expected {FORMAT_VERSION}"
         )
+    if any("kind" not in r for r in records):
+        raise ValueError("record missing 'kind'")
     scene_ids = {r["id"] for r in records if r["kind"] == "scene"}
     referenced = {r["scene_id"] for r in records if r["kind"] == "detection"}
     orphans = sorted(referenced - scene_ids)
@@ -179,7 +187,7 @@ SCENE_SELECT = """
            overview_png
     FROM sar_scenes
     WHERE roi = ANY(:rois) AND status = 'processed'
-    ORDER BY roi, sensed_at
+    ORDER BY roi, sensed_at, id
 """
 
 DETECTION_SELECT = """
@@ -338,6 +346,27 @@ async def _run_import(args: argparse.Namespace) -> int:
         for record in scenes:
             await session.execute(text(SCENE_UPSERT), record_to_scene_params(record))
         removed = await session.execute(text(DETECTION_DELETE), {"scene_ids": scene_ids})
+        replacing = removed.rowcount
+
+        # Reported before the commit, while it is still reversible: scene ids
+        # are CDSE product UUIDs and collide across machines, so a replay of an
+        # import already applied elsewhere destroys the target's own detections
+        # for those scenes before overwriting them with the local copy.
+        if replacing:
+            print(
+                f"replacing {replacing} existing detection(s) already in the "
+                f"target database for scene(s) {', '.join(scene_ids)}",
+                file=sys.stderr,
+            )
+            if not args.dry_run and not args.force:
+                await session.rollback()
+                print(
+                    "aborting: re-run with --force to confirm the replacement, "
+                    "or --dry-run to preview it safely",
+                    file=sys.stderr,
+                )
+                return 2
+
         if detections:
             await session.execute(
                 text(DETECTION_INSERT),
@@ -356,7 +385,7 @@ async def _run_import(args: argparse.Namespace) -> int:
     verb = "would write" if args.dry_run else "wrote"
     print(
         f"{verb} {len(scenes)} scenes, {len(detections)} detections "
-        f"(replacing {removed.rowcount or 0}), {len(ships)} ship_metadata rows"
+        f"(replacing {replacing}), {len(ships)} ship_metadata rows"
     )
     for record in scenes:
         print(f"  {record['roi']:<20} {record['sensed_at'][:10]}  {record['id']}")
@@ -384,6 +413,11 @@ async def main() -> int:
 
     importer = subparsers.add_parser("import", help="read a stream on stdin and write it")
     importer.add_argument("--dry-run", action="store_true", help="report, then roll back")
+    importer.add_argument(
+        "--force",
+        action="store_true",
+        help="confirm replacing detections already in the target for these scene ids",
+    )
     importer.set_defaults(func=_run_import)
 
     args = parser.parse_args()
