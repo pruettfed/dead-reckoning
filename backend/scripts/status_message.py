@@ -12,8 +12,9 @@ of ENV — production exposes no HTTP write path for this at all, by design
     .venv/bin/python scripts/status_message.py clear
     .venv/bin/python scripts/status_message.py show
 
-    # against a deployed backend
-    railway run python scripts/status_message.py show
+    # against a deployed backend — `railway run` can't reach db.railway.internal;
+    # `railway ssh` executes inside the container itself, where it resolves
+    railway ssh -- bash -c 'cd /app && python scripts/status_message.py show'
 """
 
 from __future__ import annotations

@@ -174,8 +174,16 @@ Don't touch any other records on `pruettfed.com` — this only adds one CNAME
   **Why is everything held?** One command, 0 PU:
 
   ```
-  railway run python scripts/ais_health.py
+  railway ssh -- bash -c 'cd /app && python scripts/ais_health.py'
   ```
+
+  Use `railway ssh`, not `railway run` — `DATABASE_URL` here is
+  `db.railway.internal`, which only resolves inside Railway's private network;
+  `railway run` sets env vars for a process on your own machine, so it can
+  never reach that host and fails with a DNS error. `railway ssh` executes
+  inside the running container itself, where the hostname is real. First use
+  needs an SSH key registered (`railway ssh keys add`) and, on the first
+  connection, `ssh.railway.com`'s host key accepted.
 
   It runs the same query and the same predicates the gate does, and prints the
   oldest/newest AIS, the last gap, the per-mode verdict, and which regions are
@@ -189,8 +197,11 @@ Don't touch any other records on `pruettfed.com` — this only adds one CNAME
   missing CDSE credentials and a missing/misplaced model checkpoint — the
   latter shouldn't happen since it's committed to `main`, but confirm with:
   ```
-  railway run --service web sh -c 'ls -la models/'
+  railway ssh -- bash -c 'cd /app && ls -la models/'
   ```
+  (`railway run` would list the *local* `models/` directory instead of the
+  container's — it executes on your machine, not the deployment — so it can
+  silently pass even when the checkpoint is missing in production.)
 
 ---
 
@@ -275,15 +286,24 @@ npm install -g @railway/cli   # or: brew install railway
 railway login
 cd /path/to/dead-reckoning
 railway link                  # pick the project, then the `web` service
+railway ssh keys add          # once, register a key for `railway ssh`
 ```
 
 After that:
 
 ```bash
-railway logs                              # tail web's logs
-railway run sh -c 'ls models/'            # run something inside web's environment
-railway run python scripts/analyze.py north_taiwan --yes   # force an analysis
+railway logs                                                # tail web's logs
+railway ssh -- bash -c 'cd /app && ls models/'               # run something inside web's environment
+railway ssh -- bash -c 'cd /app && python scripts/analyze.py north_taiwan --yes'   # force an analysis
 ```
+
+Use `railway ssh`, not `railway run` — `DATABASE_URL` here is
+`db.railway.internal`, which only resolves inside Railway's private network,
+and the working directory and filesystem are your own machine's, not the
+container's. `railway run` only ever executes locally with env vars injected;
+`railway ssh` is what actually runs inside the deployed container. The first
+connection also needs `ssh.railway.com`'s host key accepted (accept the
+prompt, or pre-trust it with `ssh-keyscan -H ssh.railway.com >> ~/.ssh/known_hosts`).
 
 ### 2.5 Changing environment variables without a code push
 
@@ -318,7 +338,7 @@ its own before you push it, not something to discover from a crash loop.
 | Ship a frontend or backend change | `git push origin main` — that's it |
 | Watch a deploy | Railway dashboard → `web` → Deployments, or `railway logs` |
 | Change a secret/env var | Railway dashboard → `web` → Variables |
-| Force an analysis (ops only) | `railway run python scripts/analyze.py <roi> --yes` |
+| Force an analysis (ops only) | `railway ssh -- bash -c 'cd /app && python scripts/analyze.py <roi> --yes'` |
 | Roll back | Deployments → pick a prior one → Redeploy |
 | Check prod health | `curl https://dark-vessel.pruettfed.com/api/health` |
 | Check scheduler state | `curl .../api/analysis/schedule` → `scheduler.state` / `.detail` |

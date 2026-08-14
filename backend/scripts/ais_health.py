@@ -6,7 +6,9 @@ so what this prints is what the gate decided — not a reconstruction of it.
     cd backend
     DATABASE_URL=postgresql+asyncpg://dvd:dvd@localhost:5432/dvd \\
         .venv/bin/python scripts/ais_health.py
-    railway run python scripts/ais_health.py   # in production (no venv in the image)
+    # in production — `railway run` can't reach db.railway.internal; `railway ssh`
+    # executes inside the container itself (no venv there, hence plain `python`)
+    railway ssh -- bash -c 'cd /app && python scripts/ais_health.py'
 
 Answers the two questions the runbook asks when nothing is analyzing:
   - Is the AIS stream actually flowing right now, or only historically?

@@ -197,8 +197,15 @@ which runs the same pipeline, prints the estimated cost, and warns when the scen
 was already paid for or when the run would cross the ceiling:
 
 ```bash
-railway run python scripts/analyze.py north_taiwan
+railway ssh -- bash -c 'cd /app && python scripts/analyze.py north_taiwan'
 ```
+
+Use `railway ssh`, not `railway run` — `DATABASE_URL` here points at
+`db.railway.internal`, which only resolves inside Railway's private network.
+`railway run` sets env vars for a process on your own machine, so it can never
+reach that host; `railway ssh` executes inside the running container itself,
+where the hostname is real. See the README's "Operating it" section for setup
+(SSH key registration, host key trust).
 
 Outside production this endpoint remains available for operator recovery —
 backfilling a region, retrying a scene whose fetch already spent PU, or

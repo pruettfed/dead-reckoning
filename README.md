@@ -410,21 +410,32 @@ to read "AIS warm-up" until then. A redeploy onto a populated database starts im
 
 ```bash
 railway link                                       # once, select project + web service
-cd backend
+railway ssh keys add                                # once, register a key for `railway ssh`
 
 # Force an analysis (the only way in production — no HTTP route can spend PU)
-railway run python scripts/analyze.py north_taiwan
+railway ssh -- bash -c 'cd /app && python scripts/analyze.py north_taiwan'
 
 # Post a banner across the top of the console
-railway run python scripts/status_message.py post "Investigating AIS ingest delay" --level warning
-railway run python scripts/status_message.py post "CDSE outage, no new passes" --level critical --title "OUTAGE"
-railway run python scripts/status_message.py toggle    # flip active/inactive, keep the text
-railway run python scripts/status_message.py clear
-railway run python scripts/status_message.py show
+railway ssh -- bash -c 'cd /app && python scripts/status_message.py post "Investigating AIS ingest delay" --level warning'
+railway ssh -- bash -c 'cd /app && python scripts/status_message.py post "CDSE outage, no new passes" --level critical --title "OUTAGE"'
+railway ssh -- bash -c 'cd /app && python scripts/status_message.py toggle'   # flip active/inactive, keep the text
+railway ssh -- bash -c 'cd /app && python scripts/status_message.py clear'
+railway ssh -- bash -c 'cd /app && python scripts/status_message.py show'
 
 # Why is a region being held?
-railway run python scripts/ais_health.py
+railway ssh -- bash -c 'cd /app && python scripts/ais_health.py'
 ```
+
+**Use `railway ssh`, not `railway run`, for anything above.** `DATABASE_URL` on this
+deployment points at `db.railway.internal`, which only resolves inside Railway's private
+network — `railway run` executes the command on your own machine with the env vars injected,
+so it can set `DATABASE_URL` but can never resolve or reach that host, and fails with a DNS
+error (`nodename nor servname provided`) before it gets anywhere near the database.
+`railway ssh` instead executes the command inside the running container itself, where that
+hostname is real. First use needs an SSH key registered (`railway ssh keys add`, or
+`railway ssh keys github` to import from GitHub) and, the very first connection, a host key
+accepted for `ssh.railway.com` (accept the prompt, or pre-trust it with
+`ssh-keyscan -H ssh.railway.com >> ~/.ssh/known_hosts`).
 
 Status message levels are `info` (blue), `warning` (amber), and `critical` (red); `--title`
 replaces the badge word with up to 24 characters of your own. The frontend polls every 30

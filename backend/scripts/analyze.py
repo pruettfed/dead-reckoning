@@ -9,8 +9,9 @@ spend money, so forcing a run is a shell action instead:
     .venv/bin/python scripts/analyze.py north_taiwan
     .venv/bin/python scripts/analyze.py north_taiwan --yes    # no prompt
 
-    # against a deployed backend
-    railway run python scripts/analyze.py north_taiwan
+    # against a deployed backend — `railway run` can't reach db.railway.internal;
+    # `railway ssh` executes inside the container itself, where it resolves
+    railway ssh -- bash -c 'cd /app && python scripts/analyze.py north_taiwan'
 
 Every free check runs before any spend: ROI validity, CDSE credentials, the
 model checkpoint, AIS coverage, and the 85% footprint-coverage guard. The
