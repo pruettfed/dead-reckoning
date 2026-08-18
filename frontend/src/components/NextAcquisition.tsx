@@ -28,8 +28,8 @@ function Row({ label, value }: { label: string; value: string }) {
 // A pass estimate is about the satellite, not this deployment — say so when the scheduler isn't running.
 function schedulerNote(s: SchedulerStatus | undefined): string | null {
   if (!s) return null;
-  if (s.state === "warming_up") return `Holding for AIS coverage — ${s.detail}`;
-  if (s.state === "idle") return `Analysis not running — ${s.detail}`;
+  if (s.state === "warming_up") return `Holding for AIS coverage: ${s.detail}`;
+  if (s.state === "idle") return `Analysis not running: ${s.detail}`;
   if (s.state === "disabled") return "Automatic analysis is switched off";
   return null;
 }

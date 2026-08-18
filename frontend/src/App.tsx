@@ -22,7 +22,7 @@ import VesselLayer from "./components/VesselLayer";
 import ViewTag from "./components/ViewTag";
 import Watchlist from "./components/Watchlist";
 import { contactMmsi, contactState } from "./contactState";
-import { formatAgo, useNow, utcStamp } from "./countdown";
+import { useNow, utcStamp } from "./countdown";
 import { C, MONO, hexA, stateColor } from "./theme";
 import { buildTicker } from "./ticker";
 import { useWatchlist } from "./useWatchlist";
@@ -62,7 +62,6 @@ export default function App() {
   const [showLandMasked, setShowLandMasked] = useState(false);
   const [storyOpen, setStoryOpen] = useState(false);
   const [liveVessels, setLiveVessels] = useState<Vessel[]>([]);
-  const [vesselsAt, setVesselsAt] = useState<number | null>(null);
   const [tab, setTab] = useState<"DETAIL" | "HISTORY">("DETAIL");
   const watchlist = useWatchlist();
 
@@ -149,8 +148,6 @@ export default function App() {
     survey: (rois.data ?? []).filter((r) => r.mode === "survey").length,
   };
 
-  const highConf = (detections.data ?? []).filter((d) => d.confidence_bucket === "high").length;
-
   const selectedVessel = selected?.kind === "ais" ? liveVessels.find((v) => v.mmsi === selected.id) ?? null : null;
   const watchMmsi = selectedVessel ? selectedVessel.mmsi : selectedDet ? contactMmsi(selectedDet) : null;
   const watchName = selectedVessel?.ship_name ?? selectedDet?.ship_name ?? null;
@@ -161,8 +158,6 @@ export default function App() {
         mode={mode}
         onMode={selectMode}
         counts={modeCounts}
-        health={health.data}
-        vesselsAgo={vw < 1360 || vesselsAt === null ? null : formatAgo(new Date(vesselsAt).toISOString(), now)}
         drawerOpen={drawerOpen}
         onDrawer={() => setDrawerOpen(!drawerOpen)}
         narrow={narrow}
@@ -206,7 +201,7 @@ export default function App() {
               show={showVessels && !survey}
               selectedMmsi={selected?.kind === "ais" ? selected.id : null}
               onSelect={(mmsi) => setSelected({ kind: "ais", id: mmsi })}
-              onData={(v) => { setLiveVessels(v); setVesselsAt(Date.now()); }}
+              onData={setLiveVessels}
             />
             {scene && roiObj && (
               <DetectionLayer
@@ -308,24 +303,10 @@ export default function App() {
       </HazardBar>
 
       <StatusBar
-        roiLabel={roiObj?.label ?? "—"}
         statusMessage={statusMessage.data}
-        stats={[
-          { k: "CONTACTS", v: scene ? String(scene.detection_count) : String(railVessels.length), color: C.text },
-          { k: "MASKED", v: scene ? String(scene.land_count) : "—", color: C.textMid },
-          // Survey regions are never fused, so the fusion quality stats would
-          // read "—" forever; confidence and revisit rate are what they have.
-          ...(survey
-            ? [
-                { k: "HIGH CONF", v: scene ? `${highConf}/${(detections.data ?? []).length}` : "—", color: scene ? C.survey : C.faint },
-                { k: "REVISIT", v: roiObj ? `${roiObj.passes_per_month}/mo` : "—", color: C.textMid },
-              ]
-            : [
-                { k: "FALSE MATCH", v: scene?.chance_match_rate != null ? `${(scene.chance_match_rate * 100).toFixed(1)}%` : "—", color: scene?.chance_match_rate != null ? C.unres : C.faint },
-                { k: "RECALL", v: scene?.recall_large_total ? `${scene.recall_large_detected}/${scene.recall_large_total}` : "—", color: scene?.recall_large_total ? C.match : C.faint },
-              ]),
-        ]}
+        health={health.data}
         ticker={buildTicker(schedule.data)}
+        now={now}
       />
     </div>
   );

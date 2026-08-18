@@ -6,16 +6,17 @@ function findSource(sources: Record<string, SourceHealth>, needle: string): Sour
   return Object.entries(sources).find(([n]) => n.includes(needle))?.[1];
 }
 
+// State only — the words shown for each state are the status bar's business,
+// so the same vocabulary can't drift between one source cell and another.
 export function aisPill(sources: Record<string, SourceHealth>): {
   state: PillState;
-  label: string;
   lastMessageAt: string | null;
 } {
   const ais = findSource(sources, "ais");
   const lastMessageAt = ais?.last_message_at ?? null;
-  if (ais?.state === "stale") return { state: "warn", label: "AIS STALE", lastMessageAt };
-  if (ais?.state === "connected") return { state: "ok", label: "AIS LIVE", lastMessageAt };
-  return { state: "bad", label: "AIS DOWN", lastMessageAt };
+  if (ais?.state === "stale") return { state: "warn", lastMessageAt };
+  if (ais?.state === "connected") return { state: "ok", lastMessageAt };
+  return { state: "bad", lastMessageAt };
 }
 
 export function sarPill(sources: Record<string, SourceHealth>, healthLoaded: boolean): PillState {

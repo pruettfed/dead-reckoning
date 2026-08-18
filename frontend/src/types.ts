@@ -9,7 +9,7 @@ export type SourceHealth = {
   last_error?: string | null;
 };
 
-export type Health = { status: string; sources: Record<string, SourceHealth> };
+export type Health = { status: string; version: string; sources: Record<string, SourceHealth> };
 
 export type StatusMessage = {
   active: boolean;

@@ -16,6 +16,15 @@ type Props = {
 
 const VISIBLE = 5;
 
+function Metric({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+      <span style={{ fontFamily: MONO, fontSize: 8, letterSpacing: ".12em", color: C.label, whiteSpace: "nowrap" }}>{label}</span>
+      <span style={{ fontFamily: MONO, fontSize: 9.5, color, whiteSpace: "nowrap" }}>{value}</span>
+    </div>
+  );
+}
+
 export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, expanded, onToggleExpand, accent, survey }: Props) {
   const shown = expanded ? scenes : scenes.slice(0, VISIBLE);
 
@@ -38,28 +47,49 @@ export default function PassHistory({ roiLabel, scenes, selectedId, onSelect, ex
             accent={accent}
             selected={s.id === selectedId}
             onClick={() => onSelect(s.id)}
-            style={{ padding: "9px 12px", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+            style={{ padding: "9px 12px", gap: 7 }}
           >
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: MONO, fontSize: 11, color: s.id === selectedId ? C.textHi : C.textMid, letterSpacing: ".03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {utcStamp(s.sensed_at)}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: s.id === selectedId ? C.textHi : C.textMid, letterSpacing: ".03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {utcStamp(s.sensed_at)}
+                  {/* The platform is the one acquisition field that varies pass
+                      to pass (mode and polarisation are IW/VV on every scene),
+                      but it is too slight to hold a line of its own. */}
+                  <span style={{ fontSize: 9, color: C.label, letterSpacing: ".08em" }}> · {s.platform}</span>
+                </div>
+                {failed && (
+                  <div style={{ fontFamily: MONO, fontSize: 8.5, color: hexA(C.dark, 0.8), letterSpacing: ".08em", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {s.failure_reason ?? "Analysis error"}
+                  </div>
+                )}
               </div>
-              <div style={{ fontFamily: MONO, fontSize: 8.5, color: failed ? hexA(C.dark, 0.8) : C.label, letterSpacing: ".08em", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>
-                {failed
-                  ? s.failure_reason ?? "Analysis error"
-                  : processing
-                    ? `${s.platform} / IW / VV`
-                    : `${s.platform} / IW / VV · ${s.detection_count} contacts`}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "none" }}>
+                <Tag
+                  color={flagColor ? C.bg : "#68757b"}
+                  background={flagColor ? hexA(flagColor, 0.85) : "rgba(255,255,255,.06)"}
+                >
+                  {flag}
+                </Tag>
               </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "none" }}>
-              <Tag
-                color={flagColor ? C.bg : "#68757b"}
-                background={flagColor ? hexA(flagColor, 0.85) : "rgba(255,255,255,.06)"}
-              >
-                {flag}
-              </Tag>
-            </div>
+            {/* The scene's own credibility: the noise floor its dark count is
+                measured against, and what it found of the hulls AIS says were
+                there. Survey scenes never fuse, so both would read "—". */}
+            {!failed && !processing && !survey && (
+              <div style={{ display: "flex", gap: 14, paddingTop: 6, borderTop: `1px solid ${C.hairline}` }}>
+                <Metric
+                  label="FALSE MATCH"
+                  value={s.chance_match_rate != null ? `${(s.chance_match_rate * 100).toFixed(1)}%` : "—"}
+                  color={s.chance_match_rate != null ? C.unres : C.faint}
+                />
+                <Metric
+                  label="RECALL"
+                  value={s.recall_large_total ? `${s.recall_large_detected}/${s.recall_large_total}` : "—"}
+                  color={s.recall_large_total ? C.match : C.faint}
+                />
+              </div>
+            )}
           </Card>
         );
       })}

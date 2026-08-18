@@ -327,7 +327,7 @@ production.
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/health` | Liveness plus per-source state for AIS and the SAR connector |
+| `GET /api/health` | Liveness, deployed version, and per-source state for AIS and the SAR connector |
 | `GET /api/status-message` | The operator announcement banner, if one is posted |
 | `GET /api/rois` | The twelve regions: boxes, mode, revisit rate, written brief |
 | `GET /api/vessels?roi=` | Latest AIS position per vessel (`?at=` for a historical instant) |
@@ -351,6 +351,37 @@ Every response is filtered through a declared model, and error text is redacted 
 *before it is stored*, not just before it is served.
 
 ---
+
+## Releases
+
+`main` is what is deployed. Each release is a branch (`v1.1`, `v1.2`) collecting a few
+small features, merged to `main` when it is ready; the push to `main` is the deploy.
+
+The version lives in exactly one place — `VERSION` in
+[`backend/app/version.py`](backend/app/version.py). The API declares it in its OpenAPI
+schema and serves it on `GET /api/health`; the SPA holds no version of its own and renders
+whatever health reports, in the status bar along the bottom beside the source-health and
+data-source cells. There is nothing to keep in sync, so bumping is a one-line edit as part
+of the merge:
+
+| Change | Bump |
+|---|---|
+| Release branch `vN.M` merged to `main` | minor — `1.0.0` → `1.1.0` |
+| Hotfix straight onto `main` | patch — `1.1.0` → `1.1.1` |
+| Breaking API change | major — `1.1.1` → `2.0.0` |
+
+`tests/test_version.py` rejects a malformed string, so a stray `v` prefix or a two-part
+`1.1` fails the build rather than reaching a deploy. Ask a running instance what it is:
+
+```bash
+curl -s https://<host>/api/health | jq .version
+```
+
+Production serves no `/openapi.json`, so `/api/health` is the only way to read the version
+off a deployed instance. It answers even when the database is down.
+
+`frontend/package.json` deliberately stays at `0.0.0` — the package is private and never
+published, so giving it a real number would only create a second place to forget.
 
 ## Deployment
 

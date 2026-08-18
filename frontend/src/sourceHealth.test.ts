@@ -8,24 +8,24 @@ function source(state: string, last_message_at: string | null = null): SourceHea
 }
 
 describe("aisPill", () => {
-  it("reads ok/AIS LIVE when the socket is connected and fresh", () => {
+  it("reads ok when the socket is connected and fresh", () => {
     const p = aisPill({ ais: source("connected", "2026-08-06T00:00:00Z") });
-    expect(p).toEqual({ state: "ok", label: "AIS LIVE", lastMessageAt: "2026-08-06T00:00:00Z" });
+    expect(p).toEqual({ state: "ok", lastMessageAt: "2026-08-06T00:00:00Z" });
   });
 
-  it("reads warn/AIS STALE when the socket is connected but silent", () => {
+  it("reads warn when the socket is connected but silent", () => {
     const p = aisPill({ ais: source("stale", "2026-08-05T08:31:00Z") });
-    expect(p).toEqual({ state: "warn", label: "AIS STALE", lastMessageAt: "2026-08-05T08:31:00Z" });
+    expect(p).toEqual({ state: "warn", lastMessageAt: "2026-08-05T08:31:00Z" });
   });
 
-  it("reads bad/AIS DOWN when the socket is disconnected", () => {
+  it("reads bad when the socket is disconnected", () => {
     const p = aisPill({ ais: source("disconnected") });
-    expect(p).toEqual({ state: "bad", label: "AIS DOWN", lastMessageAt: null });
+    expect(p).toEqual({ state: "bad", lastMessageAt: null });
   });
 
-  it("reads bad/AIS DOWN when there is no ais source at all", () => {
+  it("reads bad when there is no ais source at all", () => {
     const p = aisPill({});
-    expect(p).toEqual({ state: "bad", label: "AIS DOWN", lastMessageAt: null });
+    expect(p).toEqual({ state: "bad", lastMessageAt: null });
   });
 });
 

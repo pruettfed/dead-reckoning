@@ -35,6 +35,7 @@ class SourceState(Base):
 class Health(Base):
     status: str
     database: str
+    version: str
     sources: dict[str, SourceState]
 
 

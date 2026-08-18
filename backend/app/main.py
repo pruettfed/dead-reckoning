@@ -36,6 +36,7 @@ from app.rois import ROI, ROIS, get_roi
 from app.scheduler import run_scheduler
 from app.security import check_admin_key
 from app.spa import mount_spa
+from app.version import VERSION
 
 settings = get_settings()
 logging.basicConfig(
@@ -118,6 +119,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 # advertise the admin routes and the header name that guards them.
 app = FastAPI(
     title="Dark Vessel Detection API",
+    version=VERSION,
     lifespan=lifespan,
     docs_url=None if settings.is_production else "/docs",
     redoc_url=None if settings.is_production else "/redoc",
@@ -161,6 +163,10 @@ async def health(session: Annotated[AsyncSession, Depends(get_session)]) -> dict
     return {
         "status": "ok" if database == "ok" else "degraded",
         "database": database,
+        # Production publishes no /openapi.json, so the FastAPI `version=` is
+        # invisible there — this field is the only way to ask a deployed
+        # instance what it is running, and what the SPA renders in the top bar.
+        "version": VERSION,
         "sources": sources.snapshot(),
     }
 
