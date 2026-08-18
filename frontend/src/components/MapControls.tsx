@@ -25,7 +25,7 @@ export default function MapControls({ sar, onSar, showVessels, onVessels, hideSm
       {hasOverlay && (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: compact ? 8 : 12, padding: compact ? "7px 11px" : "11px 16px" }}>
-            <span style={{ fontFamily: MONO, fontSize: compact ? 7.5 : 8.5, letterSpacing: ".16em", color: C.faint }}>
+            <span style={{ fontFamily: MONO, fontSize: compact ? 7.5 : 8.5, letterSpacing: ".16em", color: C.faint, whiteSpace: "nowrap" }}>
               {compact ? "SAR" : "IMAGERY OVERLAY"}
             </span>
             <Slider value={sar} onChange={onSar} accent={accent} width={compact ? 62 : 100} />

@@ -69,6 +69,7 @@ export default function App() {
   const clock = useClock();
   const narrow = vw < 980;
   const compact = vw < 1180;
+  const showLegend = vw >= 1850;
 
   const rois = useQuery({ queryKey: ["rois"], queryFn: () => apiGet<Roi[]>("/rois") });
   const health = useQuery({ queryKey: ["health"], queryFn: () => apiGet<Health>("/health"), refetchInterval: 30_000 });
@@ -248,7 +249,7 @@ export default function App() {
               survey={survey}
               compact={compact}
             />
-            <Legend survey={survey} showVessels={showVessels && !survey} showLandMasked={showLandMasked} compact={compact} />
+            {showLegend && <Legend survey={survey} showVessels={showVessels && !survey} showLandMasked={showLandMasked} compact={compact} />}
           </div>
 
           <Dossier
