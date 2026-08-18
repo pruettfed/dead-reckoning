@@ -25,13 +25,13 @@ function backendVersion(root: string): string {
  * holds 5173), which is the failure this exists to avoid.
  */
 export function stubApi(): Plugin {
-  let version = "0.0.0-stub";
+  let root = process.cwd();
 
   return {
     name: "dr-stub-api",
     configResolved(config) {
-      version = backendVersion(config.root);
-      config.logger.info(`  ➜  Stub API:  serving fixtures as v${version} (VITE_STUB)`);
+      root = config.root;
+      config.logger.info(`  ➜  Stub API:  serving fixtures as v${backendVersion(root)} (VITE_STUB)`);
     },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
@@ -43,7 +43,10 @@ export function stubApi(): Plugin {
         const roi = url.searchParams.get("roi") ?? "north_taiwan";
         const now = Date.now();
 
-        const body = route(path, roi, url, now, version);
+        // Re-read per request: version.py lives outside vite's watched source,
+        // so a value captured at config load would serve a stale version after
+        // a bump until someone happened to restart the dev server.
+        const body = route(path, roi, url, now, backendVersion(root));
         if (body === undefined) {
           res.statusCode = 404;
           res.end(JSON.stringify({ detail: `stub has no route for ${path}` }));

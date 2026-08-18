@@ -354,34 +354,30 @@ Every response is filtered through a declared model, and error text is redacted 
 
 ## Releases
 
-`main` is what is deployed. Each release is a branch (`v1.1`, `v1.2`) collecting a few
-small features, merged to `main` when it is ready; the push to `main` is the deploy.
-
-The version lives in exactly one place — `VERSION` in
-[`backend/app/version.py`](backend/app/version.py). The API declares it in its OpenAPI
-schema and serves it on `GET /api/health`; the SPA holds no version of its own and renders
-whatever health reports, in the status bar along the bottom beside the source-health and
-data-source cells. There is nothing to keep in sync, so bumping is a one-line edit as part
-of the merge:
+The `main` branch is what is deployed.
 
 | Change | Bump |
 |---|---|
-| Release branch `vN.M` merged to `main` | minor — `1.0.0` → `1.1.0` |
-| Hotfix straight onto `main` | patch — `1.1.0` → `1.1.1` |
-| Breaking API change | major — `1.1.1` → `2.0.0` |
+| Release branch `vN.M` merged to `main` | minor — `1.4.0` → `1.5.0` |
+| Hotfix straight onto `main` | patch — `1.5.0` → `1.5.1` |
+| Breaking API change | major — `1.5.1` → `2.0.0` |
 
-`tests/test_version.py` rejects a malformed string, so a stray `v` prefix or a two-part
-`1.1` fails the build rather than reaching a deploy. Ask a running instance what it is:
+### Release history
+
+| Version | Last commit | Date | Contents |
+|---|---|---|---|
+| `1.0.0` | `bd88a3a` | 2026-08-05 | First deploy |
+| `1.1.0` | `28ccaf8` | 2026-08-06 | Deploy hardening, scheduler AIS warm-up gate, ROI labels, status badges |
+| `1.1.1` | `dc5a879` | 2026-08-08 | Icons, wording, AIS ingest backoff reset |
+| `1.2.0` | `8d2b406` | 2026-08-11 | Status message system: `GET /api/status-message`, table, CLI, banner |
+| `1.3.0` | `1086c00` | 2026-08-14 | `transfer_scenes` export/import between databases |
+| `1.4.0` | `f800993` | 2026-08-17 | Version constant, stub mode, top/status bar split by scope |
+
+Ask a running instance what version it is:
 
 ```bash
 curl -s https://<host>/api/health | jq .version
 ```
-
-Production serves no `/openapi.json`, so `/api/health` is the only way to read the version
-off a deployed instance. It answers even when the database is down.
-
-`frontend/package.json` deliberately stays at `0.0.0` — the package is private and never
-published, so giving it a real number would only create a second place to forget.
 
 ## Deployment
 

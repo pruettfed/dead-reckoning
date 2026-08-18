@@ -48,7 +48,9 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
-      - ./backend/app/version.py:/backend/app/version.py:ro
+      # Directory, not the single file: a bind-mounted file is pinned to one
+      # inode, so an editor's atomic save would detach it until a restart.
+      - ./backend/app:/backend/app:ro
     ports:
       - "5173:5173"
 
