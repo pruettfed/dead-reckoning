@@ -88,7 +88,7 @@ class TestSecurityHeaders:
 
     def test_csp_allows_the_basemap_and_nothing_else_offsite(self):
         # Leaflet's CARTO tiles are the only external origin the app uses.
-        assert "https://*.basemaps.cartocdn.com" in CSP
+        assert "https://basemaps.cartocdn.com" in CSP
         assert "connect-src 'self'" in CSP
         assert "script-src 'self'" in CSP
 

@@ -372,6 +372,7 @@ The `main` branch is what is deployed.
 | `1.2.0` | `8d2b406` | 2026-08-11 | Status message system: `GET /api/status-message`, table, CLI, banner |
 | `1.3.0` | `1086c00` | 2026-08-14 | `transfer_scenes` export/import between databases |
 | `1.4.0` | `f800993` | 2026-08-17 | Version constant, stub mode, top/status bar split by scope |
+| `1.4.1` | — | 2026-10-26 | CARTO basemap API key (`VITE_CARTO_KEY`), responsive legend + map controls |
 
 Ask a running instance what version it is:
 
@@ -407,7 +408,12 @@ AISSTREAM_API_KEY=...
 CDSE_CLIENT_ID=...
 CDSE_CLIENT_SECRET=...
 LOG_LEVEL=INFO
+VITE_CARTO_KEY=...                          # build-time; baked into the SPA bundle
 ```
+
+`VITE_CARTO_KEY` is read when the image builds, not when it boots — changing it needs a
+redeploy. It is public by design (it ships in the bundle); restrict it to your hostname on
+CARTO's dashboard. Without it every basemap tile renders "API KEY REQUIRED".
 
 Do **not** copy `.env.example` verbatim — it sets `DEVTOOLS_ENABLED=true`, and
 `ENV=production` refuses to boot with that. The refusal is the feature.

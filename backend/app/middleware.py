@@ -110,7 +110,7 @@ CSP = "; ".join(
         "object-src 'none'",
         "script-src 'self'",
         "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob: https://*.basemaps.cartocdn.com",
+        "img-src 'self' data: blob: https://basemaps.cartocdn.com",
         "connect-src 'self'",
     ]
 )

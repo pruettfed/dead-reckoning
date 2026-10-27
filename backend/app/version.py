@@ -16,4 +16,4 @@ history — see the release table in README.md. Format is enforced by
 tests/test_version.py.
 """
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"

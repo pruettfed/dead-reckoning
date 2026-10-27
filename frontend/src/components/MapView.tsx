@@ -97,8 +97,14 @@ export default function MapView({ roi, children }: { roi: Roi | null; children: 
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        subdomains="abcd"
+        // CARTO watermarks every keyless tile "API KEY REQUIRED" (HTTP 200, so
+        // nothing errors). The key is public by design — it ships in the bundle,
+        // and the hostname restriction on CARTO's dashboard is what protects it.
+        url={`https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${import.meta.env.VITE_CARTO_KEY ?? ""}`}
+        // The API serves Referrer-Policy: no-referrer, which would strip the
+        // Referer a hostname-restricted key is checked against. The element-level
+        // policy overrides it for tiles only, and sends the origin, never the path.
+        referrerPolicy="origin"
         // maxZoom is the map's own ceiling (20); maxNativeZoom is the highest
         // level CARTO actually serves (19) — Leaflet upscales those tiles past
         // it rather than finding no source and going blank.

@@ -9,6 +9,9 @@ COPY frontend/package.json frontend/pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile
 
 COPY frontend/ ./
+# .dockerignore keeps frontend/.env out, so the basemap key arrives as a build arg
+# (Railway passes service variables to any ARG the Dockerfile declares).
+ARG VITE_CARTO_KEY
 RUN pnpm build
 
 
